@@ -35,7 +35,7 @@ svg { display: block; }
 .primary:disabled { opacity: .4; }
 
 #stage { flex: 1; min-height: 0; position: relative; display: flex; align-items: center; justify-content: center; padding: 4px 12px; }
-#preview { max-width: 100%; max-height: 100%; border-radius: 6px; background: #000; display: block; }
+#preview { touch-action: none; max-width: 100%; max-height: 100%; border-radius: 6px; background: #000; display: block; }
 #empty { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; color: var(--muted); font-size: 14px; background: var(--bg); }
 #empty.hide { display: none; }
 .big { background: var(--accent); color: #fff; padding: 15px 24px; border-radius: 16px; font-weight: 600; font-size: 17px; }
@@ -145,3 +145,25 @@ video.result { width: 100%; max-height: 30dvh; border-radius: 10px; background: 
 .sfx-name { flex: 1; font-size: 14px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sfx-dur { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .mini.add { background: var(--accent); color: #fff; }
+
+.track.layer { height: 0; margin-top: 0; }
+.lay { position: absolute; height: 36px; border-radius: 7px; background: #3f3470 repeat-x; background-size: auto 100%; overflow: hidden; border: 2px solid transparent; }
+.lay .nm { position: absolute; left: 4px; top: 2px; font-size: 9px; background: rgba(0,0,0,.55); padding: 1px 4px; border-radius: 4px; white-space: nowrap; }
+.lay.sel { border-color: #fff; }
+.clip .vf { position: absolute; top: 0; bottom: 0; pointer-events: none; }
+.clip .vf.in { left: 0; background: linear-gradient(to right, rgba(0,0,0,.85), transparent); }
+.clip .vf.out { right: 0; background: linear-gradient(to left, rgba(0,0,0,.85), transparent); }
+.sfx-item { border-bottom: 1px solid var(--line); }
+.sfx-item .sfx-row { border-bottom: 0; }
+.mini.on { background: var(--accent2); color: #000; }
+.sfx-edit { padding: 4px 0 12px; }
+.trim { position: relative; height: 56px; background: #2a2614; border-radius: 8px; margin: 4px 14px 0; touch-action: none; }
+.trim canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+.trim .shade { position: absolute; top: 0; bottom: 0; background: rgba(10,10,12,.72); pointer-events: none; }
+.trim .shade.l { left: 0; border-radius: 8px 0 0 8px; }
+.trim .shade.r { border-radius: 0 8px 8px 0; }
+.trim .hdl { position: absolute; top: -6px; bottom: -6px; width: 30px; margin-left: -15px; touch-action: none; cursor: ew-resize; z-index: 2; display: grid; place-items: center; }
+.trim .hdl i { width: 6px; height: 100%; background: var(--accent2); border-radius: 3px; box-shadow: 0 0 0 1px rgba(0,0,0,.5); }
+.trim .tph { position: absolute; top: 0; bottom: 0; width: 2px; background: #fff; display: none; pointer-events: none; z-index: 1; }
+.trim-info { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 10px 14px 0; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.trim-info .chip { padding: 6px 10px; font-size: 12px; }

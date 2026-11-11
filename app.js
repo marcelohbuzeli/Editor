@@ -40,6 +40,7 @@ const ICONS = {
   zoomOut: '<circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3M8 11h6"/>',
   fade: '<rect x="3" y="3" width="18" height="18" rx="3"/><path d="M3 21 21 3M3 15l12-12M3 9l6-6"/>',
   wave: '<path d="M2 12h2M6 8v8M10 4v16M14 7v10M18 10v4M22 12h0"/>',
+  layers: '<path d="m12 2 10 5-10 5L2 7z"/><path d="m2 17 10 5 10-5M2 12l10 5 10-5"/>',
   unlink: '<path d="m18.84 12.25 1.72-1.71a5 5 0 0 0-7.07-7.07l-1.72 1.71M5.17 11.75l-1.71 1.71a5 5 0 0 0 7.07 7.07l1.71-1.71M8 2v3M2 8h3M16 22v-3M22 16h-3"/>',
 };
 const ic = (n) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICONS[n]}</svg>`;
@@ -72,6 +73,7 @@ const S = {
   origVolume: 1,
   aspect: null,
   pps: 50,        // pixels por segundo na linha do tempo
+  layers: [],    // camadas por cima do vídeo: { id, kind: 'video'|'image', srcId, start, in, out, x, y, scale, volume }
   zooms: [],     // efeitos de zoom: { id, clipId, off (s desde o início do clipe), dur, type: 'in'|'out', amount }
   t: 0,
   sel: null,      // { type: 'clip'|'audio'|'caption', id }
@@ -80,21 +82,21 @@ const S = {
 if ((prefs.v || 0) < 3) { S.cap.size = 60; S.cap.y = 0.75; S.fx.fadeOut.on = false; S.fx.fadeIn.on = false; }
 if (prefs.fx && prefs.fx.autoTr == null) S.fx.autoTr = prefs.fx.autoFlash === false ? 'none' : 'flash';
 // Cada clipe tem o áudio original vinculado: aOn (ligado), volume, afi/afo (fade in/out em segundos)
-const normClip = (c) => { c.aOn ??= true; c.volume ??= 1; c.afi ??= 0; c.afo ??= 0; c.transition ??= 'none'; return c; };
+const normClip = (c) => { c.aOn ??= true; c.volume ??= 1; c.afi ??= 0; c.afo ??= 0; c.vfi ??= 0; c.vfo ??= 0; c.vfa ??= true; c.transition ??= 'none'; return c; };
 const media = new Map();    // id -> { id, name, url, duration, w, h, bufferId, thumb }
 const buffers = new Map();  // id -> { buffer, peaks, name, fileKey }
 
 function loadPrefs() { try { return JSON.parse(localStorage.getItem('corte-prefs') || '{}'); } catch { return {}; } }
 function savePrefs() {
-  try { localStorage.setItem('corte-prefs', JSON.stringify({ v: 3, cap: S.cap, fx: S.fx, groqKey: prefs.groqKey, res: prefs.res, zoomDef: prefs.zoomDef })); } catch {}
+  try { localStorage.setItem('corte-prefs', JSON.stringify({ v: 3, cap: S.cap, fx: S.fx, groqKey: prefs.groqKey, res: prefs.res, zoomDef: prefs.zoomDef, fadeDef: prefs.fadeDef, sfxTrim: prefs.sfxTrim })); } catch {}
 }
 
 // ---------- Histórico (desfazer/refazer) ----------
 const hist = { past: [], future: [] };
-const snap = () => JSON.stringify({ clips: S.clips, audios: S.audios, captions: S.captions, zooms: S.zooms, fx: S.fx, cap: S.cap, origVolume: S.origVolume });
+const snap = () => JSON.stringify({ clips: S.clips, audios: S.audios, captions: S.captions, zooms: S.zooms, layers: S.layers, fx: S.fx, cap: S.cap, origVolume: S.origVolume });
 function pushHist(s) { hist.past.push(s); if (hist.past.length > 80) hist.past.shift(); hist.future = []; updUndo(); savePrefs(); saveSoon(); }
 const commit = () => pushHist(snap());
-function restore(str) { Object.assign(S, { zooms: [] }, JSON.parse(str)); S.clips.forEach(normClip); S.sel = null; refresh(); saveSoon(); }
+function restore(str) { Object.assign(S, { zooms: [], layers: [] }, JSON.parse(str)); S.clips.forEach(normClip); S.sel = null; refresh(); saveSoon(); }
 function undo() { if (!hist.past.length) return; hist.future.push(snap()); restore(hist.past.pop()); updUndo(); }
 function redo() { if (!hist.future.length) return; hist.past.push(snap()); restore(hist.future.pop()); updUndo(); }
 function updUndo() { $('#btn-undo').disabled = !hist.past.length; $('#btn-redo').disabled = !hist.future.length; }
@@ -149,6 +151,7 @@ function ac() {
     try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch {}
     clickBuf = makeClick();
     // som do film burn: "red whoosh gladiator 04" por martian (freesound.org, CC0)
+    [S.fx.flashSnd, S.fx.burnSnd].filter(Boolean).forEach((f) => sfxBuffer(f).catch(() => {}));
     fetch('sfx/filmburn.mp3').then((r) => r.arrayBuffer()).then((ab) => new Promise((res, rej) => actx.decodeAudioData(ab, res, rej))).then((b) => (burnBuf = b)).catch((e) => console.warn('som do film burn', e));
   }
   return actx;
@@ -288,11 +291,8 @@ function envelope(param, pts, fromT, now) {
 function scheduleAudio(fromT, dest) {
   const ctx = ac(), now = ctx.currentTime + 0.06, T = total(), L = layout(), nodes = [];
   const master = ctx.createGain(); master.connect(dest);
-  const fin = S.fx.fadeAudio && S.fx.fadeIn.on, fout = S.fx.fadeAudio && S.fx.fadeOut.on;
-  const mp = [[0, fin ? 0 : 1]];
-  if (fin) mp.push([Math.min(S.fx.fadeIn.dur, T), 1]);
-  if (fout) mp.push([Math.max(0, T - S.fx.fadeOut.dur), 1], [T, 0]); else mp.push([T, 1]);
-  envelope(master.gain, mp, fromT, now);
+  const mp = masterFadePoints(L); // fades dos clipes com "som junto"
+  if (mp.length) envelope(master.gain, mp, fromT, now);
 
   const add = (buffer, gainVal, tlStart, srcOffset, dur, pts) => {
     if (dur <= 0.005) return;
@@ -315,14 +315,23 @@ function scheduleAudio(fromT, dest) {
     add(b.buffer, v, r.start + off, c.in + off, len - off, pts);
   }
   // efeitos sonoros das transições (podem começar antes do corte)
-  const sfx = (buf, gain, tlStart) => {
-    if (!buf) return;
-    const off = Math.max(0, fromT - tlStart); if (off >= buf.duration) return;
-    add(buf, gain, tlStart + off, off, buf.duration - off);
+  const sfx = (snd, gain, cutT) => {
+    if (!snd) return;
+    const tlStart = cutT - (snd.peak - snd.in), len = snd.out - snd.in;
+    const off = Math.max(0, fromT - tlStart); if (off >= len) return;
+    add(snd.buf, gain, tlStart + off, snd.in + off, len - off);
   };
   for (const ct of cuts(L)) {
-    if (ct.type === 'flash' && S.fx.click) sfx(clickBuf, dbToGain(S.fx.clickDb), ct.t);
-    if (ct.type === 'burn' && S.fx.burnSound) sfx(burnBuf, dbToGain(S.fx.burnDb), ct.t - BURN_PEAK);
+    if (ct.type === 'flash' && S.fx.click) sfx(transSound('flash'), dbToGain(S.fx.clickDb), ct.t);
+    if (ct.type === 'burn' && S.fx.burnSound) sfx(transSound('burn'), dbToGain(S.fx.burnDb), ct.t);
+  }
+  // som das camadas de vídeo (se o volume for maior que 0)
+  for (const ly of S.layers) {
+    if (ly.kind !== 'video' || !(ly.volume > 0)) continue;
+    const m = media.get(ly.srcId), b = m && buffers.get(m.bufferId); if (!b) continue;
+    const e = ly.start + ly.out - ly.in; if (e <= fromT || ly.start >= T) continue;
+    const s0 = Math.max(ly.start, fromT), e0 = Math.min(e, T);
+    add(b.buffer, ly.volume, s0, ly.in + (s0 - ly.start), e0 - s0);
   }
   // trilhas de áudio extraídas
   for (const a of S.audios) {
@@ -378,7 +387,7 @@ const isReady = (st) => st && st.v._clipId === st.r.clip.id && !st.v.seeking && 
 
 // ---------- Renderização ----------
 const pv = $('#preview'), pctx = pv.getContext('2d');
-function render(ctx, W, H, t, st) {
+function render(ctx, W, H, t, st, pre = false) {
   if (!isReady(st)) return false; // mantém o último quadro enquanto carrega
   ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
   const v = st.v, vw = v.videoWidth, vh = v.videoHeight;
@@ -386,6 +395,7 @@ function render(ctx, W, H, t, st) {
     const k = Math.min(W / vw, H / vh) * zoomAt(t, st.r), w = vw * k, h = vh * k;
     ctx.drawImage(v, (W - w) / 2, (H - h) / 2, w, h);
   }
+  drawLayers(ctx, W, H, t, pre); // camadas: acima do vídeo, abaixo da legenda
   const cap = captionAt(t, st.r);
   if (cap && cap.text.trim()) drawCaption(ctx, W, H, cap.text);
   overlays(ctx, W, H, t);
@@ -399,9 +409,7 @@ function overlays(ctx, W, H, t) {
     else if (ct.type === 'burn') { const p = (t - ct.t) / fx.burnDur + 0.5; if (p > 0 && p < 1) drawFilmBurn(ctx, W, H, p, ct.seed); }
   }
   if (fa > 0) { ctx.fillStyle = `rgba(255,255,255,${fa})`; ctx.fillRect(0, 0, W, H); }
-  let ba = 0;
-  if (fx.fadeIn.on && t < fx.fadeIn.dur) ba = Math.max(ba, 1 - t / fx.fadeIn.dur);
-  if (fx.fadeOut.on && T - t < fx.fadeOut.dur) ba = Math.max(ba, 1 - (T - t) / fx.fadeOut.dur);
+  const ba = clipFadeAlpha(t);
   if (ba > 0) { ctx.fillStyle = `rgba(0,0,0,${clamp(ba, 0, 1)})`; ctx.fillRect(0, 0, W, H); }
 }
 // Film burn feito por código: manchas de luz quente que atravessam a tela e "queimam" até quase branco no corte
@@ -453,7 +461,8 @@ function drawCaption(ctx, W, H, text) {
 }
 function draw() {
   if (!S.clips.length) { pctx.fillStyle = '#000'; pctx.fillRect(0, 0, pv.width, pv.height); return; }
-  render(pctx, pv.width, pv.height, S.t, syncVideos(S.t));
+  const st = syncVideos(S.t); syncLayers(S.t);
+  render(pctx, pv.width, pv.height, S.t, st, true);
 }
 function sizePreview() {
   const a = S.aspect || 9 / 16;
@@ -492,7 +501,7 @@ function loop() {
   E.raf = requestAnimationFrame(loop);
   const T = total(), t = clock();
   if (t >= T) { S.t = T; if (E.exporting) finishExport(); else { pause(); S.t = T; followScroll(); updTime(); } return; }
-  const st = syncVideos(t), ready = isReady(st);
+  const st = syncVideos(t), ready = isReady(st); syncLayers(t);
   if (!ready && !E.stalled) {
     E.stalled = true; E.stallSince = performance.now();
     actx.suspend(); if (E.rec && E.rec.state === 'recording') E.rec.pause(); st && st.v.pause();
@@ -501,7 +510,7 @@ function loop() {
     actx.resume(); if (E.rec && E.rec.state === 'paused') E.rec.resume();
   }
   S.t = t;
-  render(pctx, pv.width, pv.height, t, st);
+  render(pctx, pv.width, pv.height, t, st, true);
   if (E.exporting) {
     render(E.exp.cx, E.exp.W, E.exp.H, t, st);
     const pct = Math.round(100 * t / T); const bar = $('#exp-bar'); if (bar) bar.style.width = pct + '%';
@@ -515,7 +524,7 @@ let progScroll = false;
 const half = () => sc.clientWidth / 2;
 function renderTimeline() {
   const pps = S.pps, T = total(), L = layout(), h = half();
-  const audioEnd = S.audios.reduce((m, a) => Math.max(m, a.start + a.out - a.in), 0);
+  const audioEnd = [...S.audios, ...S.layers].reduce((m, a) => Math.max(m, a.start + a.out - a.in), 0);
   inner.style.width = (Math.max(T, audioEnd) * pps + sc.clientWidth) + 'px';
 
   // régua
@@ -526,6 +535,19 @@ function renderTimeline() {
     d.innerHTML = `<span>${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}</span>`; ruler.appendChild(d);
   }
 
+  // camadas (acima do vídeo principal)
+  const tl = $('#track-layer'); tl.innerHTML = '';
+  const ll = layerLanes(); tl.style.height = (ll.count * 40) + 'px'; tl.style.marginTop = ll.count ? '4px' : '0';
+  for (const L of S.layers) {
+    const el = document.createElement('div');
+    el.className = 'lay' + (S.sel?.type === 'layer' && S.sel.id === L.id ? ' sel' : '');
+    el.style.left = (h + L.start * pps) + 'px'; el.style.width = Math.max(3, (L.out - L.in) * pps - 2) + 'px'; el.style.top = (ll.map.get(L.id) * 40) + 'px';
+    const th = L.kind === 'image' ? images.get(L.srcId)?.url : media.get(L.srcId)?.thumb; if (th) el.style.backgroundImage = `url(${th})`;
+    el.innerHTML = `<span class="nm">${L.kind === 'image' ? '🖼' : '🎬'} Camada</span>`;
+    el.onclick = (e) => { e.stopPropagation(); select('layer', L.id); };
+    tl.appendChild(el);
+  }
+
   // vídeo
   const tv = $('#track-video'); tv.innerHTML = '';
   for (const r of L) {
@@ -534,7 +556,8 @@ function renderTimeline() {
     el.className = 'clip' + (isSel ? ' sel' : '');
     el.style.left = (h + r.start * pps) + 'px'; el.style.width = Math.max(3, (r.end - r.start) * pps - 2) + 'px';
     const m = media.get(r.clip.mediaId); if (m?.thumb) el.style.backgroundImage = `url(${m.thumb})`;
-    el.innerHTML = `<span class="dur">${(r.end - r.start).toFixed(1)}s</span>`;
+    el.innerHTML = `<span class="dur">${(r.end - r.start).toFixed(1)}s</span>` +
+      (r.clip.vfi ? `<i class="vf in" style="width:${r.clip.vfi * pps}px"></i>` : '') + (r.clip.vfo ? `<i class="vf out" style="width:${r.clip.vfo * pps}px"></i>` : '');
     el.onclick = (e) => { e.stopPropagation(); select('clip', r.clip.id); };
     tv.appendChild(el);
     for (const z of S.zooms.filter((x) => x.clipId === r.clip.id)) {
@@ -637,7 +660,7 @@ function renderToolbar() {
       ['scissors', 'Dividir', splitAtPlayhead], ['trash', 'Apagar', () => deleteClip(sel.id), 'danger'],
       ['left', 'Mover', () => moveClip(sel.id, -1)], ['right', 'Mover', () => moveClip(sel.id, 1)],
       ['trimL', 'Aparar início', () => trimClip(sel.id, 'start')], ['trimR', 'Aparar fim', () => trimClip(sel.id, 'end')],
-      ['zoomIn', 'Zoom', () => openZoomSheet(sel.id)], ['zap', 'Transição', () => openCutSheet(sel.id)], ['volume', 'Áudio', () => openClipAudioSheet(sel.id)],
+      ['fade', 'Fade', () => openClipFade(sel.id)], ['zoomIn', 'Zoom', () => openZoomSheet(sel.id)], ['zap', 'Transição', () => openCutSheet(sel.id)], ['volume', 'Áudio', () => openClipAudioSheet(sel.id)],
       ['x', 'Fechar', () => select(null)],
     ];
   } else if (sel?.type === 'clipaudio') {
@@ -653,6 +676,13 @@ function renderToolbar() {
       ['trimL', 'Aparar início', () => trimAudio(sel.id, 'start')], ['trimR', 'Aparar fim', () => trimAudio(sel.id, 'end')],
       ['x', 'Fechar', () => select(null)],
     ];
+  } else if (sel?.type === 'layer') {
+    items = [
+      ['sliders', 'Ajustar', () => openLayerSheet(sel.id)], ['target', 'Início aqui', () => { const L = S.layers.find((x) => x.id === sel.id); commit(); L.start = S.t; refresh(); }],
+      ['trimL', 'Aparar início', () => trimLayer(sel.id, 'start')], ['trimR', 'Aparar fim', () => trimLayer(sel.id, 'end')],
+      ['trash', 'Apagar', () => { commit(); S.layers = S.layers.filter((x) => x.id !== sel.id); S.sel = null; refresh(); }, 'danger'],
+      ['x', 'Fechar', () => select(null)],
+    ];
   } else if (sel?.type === 'caption') {
     items = [
       ['edit', 'Editar texto', () => openCaptions('texto', sel.id)], ['scissors', 'Dividir', () => splitCaption(sel.id)],
@@ -663,7 +693,7 @@ function renderToolbar() {
     items = [
       ['video', 'Vídeo', () => $('#file-video').click()], ['music', 'Áudio de vídeo', () => $('#file-audio').click()],
       ['wave', 'SFX', openSfx], ['type', 'Legendas', () => openCaptions()], ['zap', 'Transições', openTransitions],
-      ['fade', 'Fade', openFades], ['zoomIn', 'Zoom', zoomFromToolbar],
+      ['layers', 'Camada', () => $('#file-layer').click()], ['zoomIn', 'Zoom', zoomFromToolbar],
       ['volume', 'Som original', openOrigVolume], ['scissors', 'Dividir', splitAtPlayhead],
     ];
   }
@@ -683,8 +713,8 @@ function splitAtPlayhead() {
   if (s - r.clip.in < 0.1 || r.clip.out - s < 0.1) return toast('Mova o cursor para o meio do clipe');
   commit();
   // o áudio vinculado é cortado junto: o fade in fica na parte da esquerda, o fade out na da direita
-  const nc = { ...r.clip, id: uid(), in: s, transition: newClipTransition(), afi: 0 };
-  r.clip.out = s; r.clip.afo = 0; S.clips.splice(r.i + 1, 0, nc);
+  const nc = { ...r.clip, id: uid(), in: s, transition: newClipTransition(), afi: 0, vfi: 0 };
+  r.clip.out = s; r.clip.afo = 0; r.clip.vfo = 0; S.clips.splice(r.i + 1, 0, nc);
   const cut = s - r.clip.in;
   S.zooms.forEach((z) => { if (z.clipId === r.clip.id && z.off >= cut) { z.clipId = nc.id; z.off -= cut; } });
   if (S.sel?.type === 'clipaudio' && S.sel.id === r.clip.id) S.sel = null;
@@ -814,7 +844,7 @@ function grabThumb(v, t) {
     v.currentTime = t;
   });
 }
-async function addAudioFromFile(f, label) {
+async function addAudioFromFile(f, label, range) {
   toast(label ? 'Adicionando…' : 'Extraindo áudio…', 60000);
   try {
     const buf = await extractAudio(f);
@@ -822,7 +852,7 @@ async function addAudioFromFile(f, label) {
     buffers.set(bid, { buffer: buf, peaks: computePeaks(buf), name: f.name, fileKey: 'file:' + bid });
     dbPut('file:' + bid, f);
     commit();
-    const a = { id: uid(), bufferId: bid, name: label || f.name.replace(/\.[^.]+$/, ''), start: S.clips.length ? S.t : 0, in: 0, out: buf.duration, volume: 1, fadeIn: 0, fadeOut: 0 };
+    const a = { id: uid(), bufferId: bid, name: label || f.name.replace(/\.[^.]+$/, ''), start: S.clips.length ? S.t : 0, in: range ? range[0] : 0, out: range ? range[1] : buf.duration, volume: 1, fadeIn: 0, fadeOut: 0 };
     S.audios.push(a); S.sel = { type: 'audio', id: a.id };
     toast(label ? `${label} adicionado em ${fmt(a.start)}` : 'Áudio extraído e adicionado à linha do tempo', 2000);
     refresh();
@@ -869,7 +899,9 @@ const pctf = (v) => `${Math.round(v)}%`;
 
 const inlineIc = (n, s = 14) => ic(n).replace('<svg', `<svg style="width:${s}px;height:${s}px;display:inline;vertical-align:-2px"`);
 function playSfx(buf, db) { if (!buf) return toast('Som ainda carregando…'); const c = ac(); c.resume(); const s = c.createBufferSource(); s.buffer = buf; const g = c.createGain(); g.gain.value = dbToGain(db); s.connect(g).connect(c.destination); s.start(); }
-function openTransitions() {
+async function openTransitions() {
+  await loadSfxIndex();
+  const sndOpts = (cur, def) => `<option value="">${def}</option>` + sfxIndex.map((s) => `<option value="${esc(s.file)}" ${cur === s.file ? 'selected' : ''}>${esc(s.name)}</option>`).join('');
   const fx = new Proxy({}, { get: (_, k) => S.fx[k], set: (_, k, v) => ((S.fx[k] = v), true) });
   openSheet('trans', 'Transições', `
     <div class="sec">Aplicar em todos os cortes</div>
@@ -882,14 +914,17 @@ function openTransitions() {
     <div class="chips">${['none', 'flash', 'burn'].map((k) => `<button class="chip ${fx.autoTr === k ? 'on' : ''}" data-auto="${k}">${TR_LABEL[k]}</button>`).join('')}</div>
     <div class="sec">${inlineIc('zap')} Flash</div>
     ${rangeRow('flashDur', 'Duração', 0.1, 0.8, 0.05, fx.flashDur, sec)}
-    <div class="row"><label>Som de clique</label><span class="spacer"></span><input type="checkbox" class="tg" id="clk" ${fx.click ? 'checked' : ''}></div>
+    <div class="row"><label>Som</label><span class="spacer"></span><input type="checkbox" class="tg" id="clk" ${fx.click ? 'checked' : ''}></div>
+    <div class="row"><label>Qual som</label><select id="snd-flash">${sndOpts(fx.flashSnd, 'Clique (padrão)')}</select></div>
     ${rangeRow('clickDb', 'Volume', -30, 0, 1, fx.clickDb, (v) => `${v} dB`)}
-    <button class="chip" id="clk-test">${inlineIc('play', 12)} Ouvir clique</button>
+    <button class="chip" id="clk-test">${inlineIc('play', 12)} Ouvir</button>
     <div class="sec">${inlineIc('flame')} Film burn</div>
     ${rangeRow('burnDur', 'Duração', 0.4, 2, 0.1, fx.burnDur, sec)}
     <div class="row"><label>Som</label><span class="spacer"></span><input type="checkbox" class="tg" id="brn" ${fx.burnSound ? 'checked' : ''}></div>
+    <div class="row"><label>Qual som</label><select id="snd-burn">${sndOpts(fx.burnSnd, 'Queima (padrão)')}</select></div>
     ${rangeRow('burnDb', 'Volume', -30, 0, 1, fx.burnDb, (v) => `${v} dB`)}
-    <button class="chip" id="brn-test">${inlineIc('play', 12)} Ouvir som</button>
+    <button class="chip" id="brn-test">${inlineIc('play', 12)} Ouvir</button>
+    <p class="note">Os sons vêm da biblioteca de SFX (com o trecho que você cortou lá). O ponto mais forte do som fica exatamente no corte.</p>
     <p class="note">O fade do começo e do final do vídeo fica no botão Fade. Dica: toque no ícone entre dois clipes, na linha do tempo, para escolher a transição só daquele corte.</p>
   `, (b) => {
     const tog = (id, fn) => $(id, b).addEventListener('change', (e) => { commit(); fn(e.target.checked); draw(); renderTimeline(); });
@@ -903,8 +938,17 @@ function openTransitions() {
     b.querySelectorAll('[data-auto]').forEach((el) => el.onclick = () => {
       commit(); fx.autoTr = el.dataset.auto; b.querySelectorAll('[data-auto]').forEach((x) => x.classList.toggle('on', x === el));
     });
-    $('#clk-test', b).onclick = () => playSfx(clickBuf, fx.clickDb);
-    $('#brn-test', b).onclick = () => playSfx(burnBuf, fx.burnDb);
+    const test = async (type, db) => {
+      const file = type === 'flash' ? fx.flashSnd : fx.burnSnd; if (file) { try { await sfxBuffer(file); } catch {} }
+      const s = transSound(type); if (!s) return toast('Som ainda carregando…'); playRange(s.buf, s.in, s.out, db);
+    };
+    $('#clk-test', b).onclick = () => test('flash', fx.clickDb);
+    $('#brn-test', b).onclick = () => test('burn', fx.burnDb);
+    const pick = (id, key) => $(id, b).onchange = async (e) => {
+      commit(); fx[key] = e.target.value || null;
+      if (fx[key]) { try { await sfxBuffer(fx[key]); } catch { toast('Não consegui carregar este som'); } }
+    };
+    pick('#snd-flash', 'flashSnd'); pick('#snd-burn', 'burnSnd');
     bindRanges(b, {
       flashDur: { set: (v) => (fx.flashDur = v), fmt: sec },
       clickDb: { set: (v) => (fx.clickDb = v), fmt: (v) => `${v} dB` },
@@ -921,7 +965,7 @@ function openCutSheet(clipId) {
   openSheet('cut', 'Transição do corte', `
     <div class="chips">
       <button class="chip ${c.transition === 'none' ? 'on' : ''}" data-tr="none">Nenhuma</button>
-      <button class="chip ${c.transition === 'flash' ? 'on' : ''}" data-tr="flash">${inlineIc('zap')} Flash${S.fx.click ? ' + clique' : ''}</button>
+      <button class="chip ${c.transition === 'flash' ? 'on' : ''}" data-tr="flash">${inlineIc('zap')} Flash${S.fx.click ? ' + som' : ''}</button>
       <button class="chip ${c.transition === 'burn' ? 'on' : ''}" data-tr="burn">${inlineIc('flame')} Film burn${S.fx.burnSound ? ' + som' : ''}</button>
     </div>
     <button class="btn" id="tr-all">Aplicar esta transição a todos os cortes</button>
@@ -971,22 +1015,6 @@ function openOrigVolume() {
     $('#o-back', b).onclick = () => { commit(); S.clips.forEach((c) => (c.aOn = true)); refresh(); toast('Áudio original restaurado'); };
   });
 }
-function openAudioSheet(id) {
-  const a = S.audios.find((x) => x.id === id); if (!a) return;
-  const len = a.out - a.in;
-  openSheet('audio', a.name || 'Áudio', `
-    ${rangeRow('v', 'Volume', 0, 200, 1, Math.round((a.volume ?? 1) * 100), pctf)}
-    ${rangeRow('fi', 'Fade in', 0, Math.min(10, len / 2).toFixed(1), 0.1, a.fadeIn || 0, sec)}
-    ${rangeRow('fo', 'Fade out', 0, Math.min(10, len / 2).toFixed(1), 0.1, a.fadeOut || 0, sec)}
-    <p class="note">Para recortar: coloque o cursor no ponto desejado e use "Aparar início", "Aparar fim" ou "Dividir" + "Apagar". "Início aqui" move o áudio para começar no cursor.</p>
-  `, (b) => bindRanges(b, {
-    v: { set: (v) => (a.volume = v / 100), fmt: pctf, after: renderTimeline },
-    fi: { set: (v) => (a.fadeIn = v), fmt: sec, after: renderTimeline },
-    fo: { set: (v) => (a.fadeOut = v), fmt: sec, after: renderTimeline },
-  }));
-}
-
-
 // ---------- Zoom in / zoom out (efeito dentro do clipe) ----------
 const ease = (p) => (p < 0.5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2);
 function zoomAt(t, r) {
@@ -1053,70 +1081,356 @@ function zoomFromToolbar() {
   openZoomSheet(clipAt(S.t).clip.id);
 }
 
-// ---------- Fade do vídeo (início e final) ----------
-function openFades() {
-  if (!S.clips.length) return toast('Adicione um vídeo primeiro');
-  const f = () => S.fx;
-  openSheet('fade', 'Fade do vídeo', `
-    <div class="sec">Início do vídeo</div>
-    <div class="row"><label>Fade in</label><span class="spacer note">surge do preto</span><input type="checkbox" class="tg" id="fi" ${f().fadeIn.on ? 'checked' : ''}></div>
-    ${rangeRow('fiDur', 'Duração', 0.1, 5, 0.1, f().fadeIn.dur, sec)}
-    <button class="chip" id="fi-prev">${inlineIc('play', 12)} Ver o início</button>
-    <div class="sec">Final do vídeo</div>
-    <div class="row"><label>Fade out</label><span class="spacer note">some para o preto</span><input type="checkbox" class="tg" id="fo" ${f().fadeOut.on ? 'checked' : ''}></div>
-    ${rangeRow('foDur', 'Duração', 0.1, 5, 0.1, f().fadeOut.dur, sec)}
-    <button class="chip" id="fo-prev">${inlineIc('play', 12)} Ver o final</button>
-    <div class="sec">Som</div>
-    <div class="row"><label>Áudio junto</label><span class="spacer note">o som também faz o fade</span><input type="checkbox" class="tg" id="fa" ${f().fadeAudio ? 'checked' : ''}></div>
-  `, (b) => {
-    const showIn = () => seekTo(Math.min(total(), f().fadeIn.dur * 0.4));
-    const showOut = () => seekTo(Math.max(0, total() - f().fadeOut.dur * 0.6));
-    const tog = (id, fn, after) => $(id, b).addEventListener('change', (e) => { commit(); fn(e.target.checked); draw(); if (e.target.checked && after) after(); });
-    tog('#fi', (v) => (f().fadeIn.on = v), showIn);
-    tog('#fo', (v) => (f().fadeOut.on = v), showOut);
-    tog('#fa', (v) => (f().fadeAudio = v));
-    $('#fi-prev', b).onclick = () => { seekTo(0); play(); };
-    $('#fo-prev', b).onclick = () => { seekTo(Math.max(0, total() - f().fadeOut.dur - 1)); play(); };
-    bindRanges(b, {
-      fiDur: { set: (v) => (f().fadeIn.dur = v), fmt: sec, after: () => f().fadeIn.on && showIn() },
-      foDur: { set: (v) => (f().fadeOut.dur = v), fmt: sec, after: () => f().fadeOut.on && showOut() },
-    });
-  });
-}
-
 // ---------- Biblioteca de SFX ----------
 let sfxIndex = null, sfxPrev = null;
 const sfxCache = new Map();
-async function sfxBuffer(s) {
-  if (!sfxCache.has(s.file)) {
-    const ab = await (await fetch('sfx/lib/' + encodeURIComponent(s.file))).arrayBuffer();
-    sfxCache.set(s.file, await new Promise((res, rej) => ac().decodeAudioData(ab, res, rej)));
+async function sfxBuffer(file) {
+  if (!sfxCache.has(file)) {
+    const ab = await (await fetch('sfx/lib/' + encodeURIComponent(file))).arrayBuffer();
+    sfxCache.set(file, await new Promise((res, rej) => ac().decodeAudioData(ab, res, rej)));
   }
-  return sfxCache.get(s.file);
+  return sfxCache.get(file);
 }
 function stopSfxPrev() { try { sfxPrev?.stop(); } catch {} sfxPrev = null; }
 async function openSfx() {
-  if (!sfxIndex) { try { sfxIndex = await (await fetch('sfx/lib/index.json')).json(); } catch { return toast('Não consegui carregar a lista de SFX'); } }
-  openSheet('sfx', 'SFX', `<p class="note">▶ ouve · ＋ coloca na linha do tempo, no cursor (${fmt(S.t)}).</p>` +
-    sfxIndex.map((s, i) => `<div class="sfx-row">
+  await loadSfxIndex();
+  if (!sfxIndex.length) return toast('Não consegui carregar a lista de SFX');
+  const lenTxt = (s) => { const t = prefs.sfxTrim?.[s.file]; return (t ? t[1] - t[0] : s.dur).toFixed(1) + 's' + (t ? ' ✂' : ''); };
+  openSheet('sfx', 'SFX', `<p class="note">▶ ouve · ✂ escolhe o trecho · ＋ coloca na linha do tempo, no cursor (${fmt(S.t)}).</p>` +
+    sfxIndex.map((s, i) => `<div class="sfx-item"><div class="sfx-row">
       <button class="mini" data-play="${i}" aria-label="Ouvir">${ic('play')}</button>
-      <span class="sfx-name">${esc(s.name)}</span><span class="sfx-dur">${s.dur.toFixed(1)}s</span>
-      <button class="mini add" data-add="${i}" aria-label="Adicionar">${ic('plus')}</button></div>`).join(''),
+      <span class="sfx-name">${esc(s.name)}</span><span class="sfx-dur" data-len="${i}">${lenTxt(s)}</span>
+      <button class="mini" data-edit="${i}" aria-label="Editar trecho">${ic('scissors')}</button>
+      <button class="mini add" data-add="${i}" aria-label="Adicionar">${ic('plus')}</button></div>
+      <div class="sfx-edit" data-box="${i}" hidden></div></div>`).join(''),
   (b) => {
     b.querySelectorAll('[data-play]').forEach((el) => el.onclick = async () => {
-      stopSfxPrev(); const c = ac(); await c.resume();
-      try { const src = c.createBufferSource(); src.buffer = await sfxBuffer(sfxIndex[+el.dataset.play]); src.connect(c.destination); src.start(); sfxPrev = src; }
+      const s = sfxIndex[+el.dataset.play];
+      try { const buf = await sfxBuffer(s.file); const [a, z] = sfxTrim(s.file, buf.duration); playRange(buf, a, z); }
       catch { toast('Não consegui tocar este som'); }
+    });
+    b.querySelectorAll('[data-edit]').forEach((el) => el.onclick = async () => {
+      const i = +el.dataset.edit, s = sfxIndex[i], box = b.querySelector(`[data-box="${i}"]`);
+      if (!box.hidden) { box.hidden = true; el.classList.remove('on'); return; }
+      b.querySelectorAll('.sfx-edit').forEach((x) => (x.hidden = true)); b.querySelectorAll('[data-edit]').forEach((x) => x.classList.remove('on'));
+      box.hidden = false; el.classList.add('on');
+      const buf = await sfxBuffer(s.file), [a, z] = sfxTrim(s.file, buf.duration), sel = { in: a, out: z };
+      makeTrimmer(box, buf, sel, {
+        onChange: () => { b.querySelector(`[data-len="${i}"]`).textContent = (sel.out - sel.in).toFixed(1) + 's ✂'; },
+        onDone: () => { prefs.sfxTrim = { ...(prefs.sfxTrim || {}), [s.file]: [sel.in, sel.out] }; savePrefs(); },
+      });
     });
     b.querySelectorAll('[data-add]').forEach((el) => el.onclick = async () => {
       const s = sfxIndex[+el.dataset.add]; stopSfxPrev();
       try {
+        const buf = await sfxBuffer(s.file), [a, z] = sfxTrim(s.file, buf.duration);
         const blob = await (await fetch('sfx/lib/' + encodeURIComponent(s.file))).blob();
-        await addAudioFromFile(new File([blob], s.file, { type: 'audio/mpeg' }), s.name);
+        await addAudioFromFile(new File([blob], s.file, { type: 'audio/mpeg' }), s.name, [a, z]);
       } catch { toast('Não consegui adicionar este som'); }
     });
   });
 }
+function openAudioSheet(id) {
+  const a = S.audios.find((x) => x.id === id); if (!a) return;
+  const b0 = buffers.get(a.bufferId);
+  const len = a.out - a.in, maxF = Math.max(0.1, Math.min(10, len / 2)).toFixed(1);
+  openSheet('audio', a.name || 'Áudio', `
+    <div class="sec">Trecho do áudio</div>
+    <div id="a-trim"></div>
+    ${rangeRow('v', 'Volume', 0, 200, 1, Math.round((a.volume ?? 1) * 100), pctf)}
+    ${rangeRow('fi', 'Fade in', 0, maxF, 0.1, Math.min(a.fadeIn || 0, maxF), sec)}
+    ${rangeRow('fo', 'Fade out', 0, maxF, 0.1, Math.min(a.fadeOut || 0, maxF), sec)}
+    <p class="note">Arraste as alças amarelas para escolher o trecho. O começo do áudio na linha do tempo continua no mesmo lugar ("Início aqui" move para o cursor).</p>
+  `, (b) => {
+    bindRanges(b, {
+      v: { set: (v) => (a.volume = v / 100), fmt: pctf, after: renderTimeline },
+      fi: { set: (v) => (a.fadeIn = v), fmt: sec, after: renderTimeline },
+      fo: { set: (v) => (a.fadeOut = v), fmt: sec, after: renderTimeline },
+    });
+    if (b0) {
+      let pend = null; const sel = { in: a.in, out: a.out };
+      makeTrimmer($('#a-trim', b), b0.buffer, sel, {
+        onChange: () => { if (!pend) pend = snap(); a.in = sel.in; a.out = sel.out; },
+        onDone: () => { if (pend) { pushHist(pend); pend = null; } renderTimeline(); },
+      });
+    }
+  });
+}
+
+// ---------- Fade do clipe (do preto / para o preto) ----------
+function clipFadeAlpha(t, L = layout()) {
+  let a = 0;
+  for (const r of L) {
+    const c = r.clip; if (!c.vfi && !c.vfo) continue;
+    if (t < r.start || t > r.end) continue;
+    const len = r.end - r.start, fi = Math.min(c.vfi || 0, len / 2), fo = Math.min(c.vfo || 0, len / 2);
+    if (fi && t < r.start + fi) a = Math.max(a, 1 - (t - r.start) / fi);
+    if (fo && t > r.end - fo) a = Math.max(a, 1 - (r.end - t) / fo);
+  }
+  return clamp(a, 0, 1);
+}
+function masterFadePoints(L) {
+  const pts = [];
+  for (const r of L) {
+    const c = r.clip; if (!c.vfa) continue;
+    const len = r.end - r.start, fi = Math.min(c.vfi || 0, len / 2), fo = Math.min(c.vfo || 0, len / 2);
+    if (fi) pts.push([r.start - 0.001, 1], [r.start, 0], [r.start + fi, 1]);
+    if (fo) pts.push([r.end - fo, 1], [r.end, 0], [r.end + 0.001, 1]);
+  }
+  return pts;
+}
+function openClipFade(id) {
+  const c = S.clips.find((x) => x.id === id); if (!c) return;
+  const r = layout().find((x) => x.clip.id === id), len = r.end - r.start, maxF = Math.max(0.2, Math.min(5, len / 2)).toFixed(1);
+  const last = prefs.fadeDef || 0.6;
+  openSheet('clipfade', 'Fade do clipe', `
+    <div class="row"><label>Fade in</label><span class="spacer note">surge do preto</span><input type="checkbox" class="tg" id="cf-in" ${c.vfi ? 'checked' : ''}></div>
+    ${rangeRow('vfi', 'Duração', 0.1, maxF, 0.1, Math.min(c.vfi || last, maxF), sec)}
+    <div class="row"><label>Fade out</label><span class="spacer note">some para o preto</span><input type="checkbox" class="tg" id="cf-out" ${c.vfo ? 'checked' : ''}></div>
+    ${rangeRow('vfo', 'Duração', 0.1, maxF, 0.1, Math.min(c.vfo || last, maxF), sec)}
+    <div class="row"><label>Som junto</label><span class="spacer note">todo o áudio acompanha o fade</span><input type="checkbox" class="tg" id="cf-a" ${c.vfa ? 'checked' : ''}></div>
+    <div class="chips"><button class="chip" id="cf-pin">${inlineIc('play', 12)} Ver o início</button><button class="chip" id="cf-pout">${inlineIc('play', 12)} Ver o final</button></div>
+    <p class="note">Para o vídeo começar do preto, use o Fade in no primeiro clipe. Para terminar no preto, o Fade out no último.</p>`,
+  (b) => {
+    const rng = (k) => parseFloat(b.querySelector(`[data-k="${k}"]`).value);
+    const show = (which) => { const rr = layout().find((x) => x.clip.id === id); if (rr) seekTo(which === 'in' ? rr.start + (c.vfi || 0) * 0.4 : rr.end - (c.vfo || 0) * 0.6); };
+    $('#cf-in', b).onchange = (e) => { commit(); c.vfi = e.target.checked ? rng('vfi') : 0; renderTimeline(); if (c.vfi) show('in'); else draw(); };
+    $('#cf-out', b).onchange = (e) => { commit(); c.vfo = e.target.checked ? rng('vfo') : 0; renderTimeline(); if (c.vfo) show('out'); else draw(); };
+    $('#cf-a', b).onchange = (e) => { commit(); c.vfa = e.target.checked; };
+    bindRanges(b, {
+      vfi: { set: (v) => { if (c.vfi) c.vfi = v; prefs.fadeDef = v; }, fmt: sec, after: () => { savePrefs(); renderTimeline(); if (c.vfi) show('in'); } },
+      vfo: { set: (v) => { if (c.vfo) c.vfo = v; prefs.fadeDef = v; }, fmt: sec, after: () => { savePrefs(); renderTimeline(); if (c.vfo) show('out'); } },
+    });
+    $('#cf-pin', b).onclick = () => { const rr = layout().find((x) => x.clip.id === id); seekTo(Math.max(0, rr.start - 0.5)); play(); };
+    $('#cf-pout', b).onclick = () => { const rr = layout().find((x) => x.clip.id === id); seekTo(Math.max(0, rr.end - (c.vfo || 0) - 1)); play(); };
+  });
+}
+
+// ---------- Som das transições (padrão ou um SFX da biblioteca) ----------
+const peakCache = new Map();
+function peakOf(key, buf, a, b) {
+  const k = `${key}|${a.toFixed(3)}|${b.toFixed(3)}`;
+  if (peakCache.has(k)) return peakCache.get(k);
+  const sr = buf.sampleRate, d = buf.getChannelData(0), win = Math.floor(sr * 0.02);
+  let best = 0, bestT = a;
+  for (let i = Math.floor(a * sr); i < Math.floor(b * sr) - win; i += win) {
+    let s = 0; for (let j = i; j < i + win; j += 4) s += d[j] * d[j];
+    if (s > best) { best = s; bestT = i / sr; }
+  }
+  peakCache.set(k, bestT); return bestT;
+}
+function sfxTrim(file, dur) {
+  const t = prefs.sfxTrim?.[file];
+  return t ? [clamp(t[0], 0, dur), clamp(t[1], 0, dur)] : [0, dur];
+}
+// devolve { buf, in, out, peak } — o pico do som é alinhado com o corte
+function transSound(type) {
+  const file = type === 'flash' ? S.fx.flashSnd : S.fx.burnSnd;
+  if (file) {
+    const buf = sfxCache.get(file);
+    if (buf) { const [a, b] = sfxTrim(file, buf.duration); return { buf, in: a, out: b, peak: peakOf(file, buf, a, b) }; }
+    sfxBuffer(file).catch(() => {});
+  }
+  if (type === 'flash') return clickBuf ? { buf: clickBuf, in: 0, out: clickBuf.duration, peak: 0 } : null;
+  return burnBuf ? { buf: burnBuf, in: 0, out: burnBuf.duration, peak: BURN_PEAK } : null;
+}
+function playRange(buf, a, b, db = 0) {
+  stopSfxPrev(); const c = ac(); c.resume();
+  const s = c.createBufferSource(); s.buffer = buf; const g = c.createGain(); g.gain.value = dbToGain(db);
+  s.connect(g).connect(c.destination); s.start(0, a, Math.max(0.05, b - a)); sfxPrev = s; return { src: s, t0: c.currentTime };
+}
+async function loadSfxIndex() {
+  if (!sfxIndex) { try { sfxIndex = await (await fetch('sfx/lib/index.json')).json(); } catch { sfxIndex = []; } }
+  return sfxIndex;
+}
+
+// ---------- Seletor de trecho (arrastar início e fim) ----------
+function makeTrimmer(host, buf, sel, { onChange, onDone } = {}) {
+  host.innerHTML = `<div class="trim"><canvas></canvas><div class="shade l"></div><div class="shade r"></div>
+    <div class="hdl l" aria-label="Início"><i></i></div><div class="hdl r" aria-label="Fim"><i></i></div><div class="tph"></div></div>
+    <div class="trim-info"><span class="ti-a"></span><button class="chip ti-play">${inlineIc('play', 12)} Ouvir trecho</button><span class="ti-b"></span></div>`;
+  const box = $('.trim', host), cv = $('canvas', host), dur = buf.duration;
+  const W = Math.max(200, box.clientWidth || 320), H = 56, dpr = Math.min(2, window.devicePixelRatio || 1);
+  cv.width = W * dpr; cv.height = H * dpr;
+  const c = cv.getContext('2d'); c.scale(dpr, dpr); c.fillStyle = 'rgba(255,214,90,.95)';
+  const ch = buf.getChannelData(0), step = Math.max(1, Math.floor(ch.length / W));
+  for (let x = 0; x < W; x++) {
+    let mx = 0; for (let j = x * step; j < Math.min((x + 1) * step, ch.length); j += 16) { const v = Math.abs(ch[j]); if (v > mx) mx = v; }
+    const amp = Math.max(1, Math.min(1, mx * 1.2) * (H - 8)); c.fillRect(x, (H - amp) / 2, 1, amp);
+  }
+  const hl = $('.hdl.l', host), hr = $('.hdl.r', host), sl = $('.shade.l', host), sr = $('.shade.r', host), ph = $('.tph', host);
+  const upd = () => {
+    const a = (sel.in / dur) * 100, b = (sel.out / dur) * 100;
+    hl.style.left = a + '%'; hr.style.left = b + '%'; sl.style.width = a + '%'; sr.style.left = b + '%'; sr.style.width = (100 - b) + '%';
+    $('.ti-a', host).textContent = fmt(sel.in); $('.ti-b', host).textContent = `${fmt(sel.out)} · ${(sel.out - sel.in).toFixed(1)}s`;
+  };
+  const drag = (el, side) => el.addEventListener('pointerdown', (e) => {
+    e.preventDefault(); e.stopPropagation(); el.setPointerCapture(e.pointerId);
+    const move = (ev) => {
+      const rect = box.getBoundingClientRect(), t = clamp((ev.clientX - rect.left) / rect.width, 0, 1) * dur;
+      if (side === 'l') sel.in = clamp(t, 0, sel.out - 0.1); else sel.out = clamp(t, sel.in + 0.1, dur);
+      upd(); onChange && onChange(sel);
+    };
+    const up = () => { el.removeEventListener('pointermove', move); el.removeEventListener('pointerup', up); el.removeEventListener('pointercancel', up); onDone && onDone(sel); };
+    el.addEventListener('pointermove', move); el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up);
+  });
+  drag(hl, 'l'); drag(hr, 'r');
+  $('.ti-play', host).onclick = () => {
+    const p = playRange(buf, sel.in, sel.out), a = sel.in, len = sel.out - sel.in;
+    ph.style.display = 'block';
+    const tick = () => {
+      const el = actx.currentTime - p.t0; if (el > len || sfxPrev !== p.src) { ph.style.display = 'none'; return; }
+      ph.style.left = ((a + el) / dur) * 100 + '%'; requestAnimationFrame(tick);
+    };
+    tick();
+  };
+  upd();
+}
+
+// ---------- Camadas (vídeo ou imagem por cima do vídeo principal) ----------
+const images = new Map();   // id -> { id, name, url, img, w, h }
+const layerEls = new Map(); // id da camada -> <video>
+let layerRects = [];
+async function loadImage(file, id = uid()) {
+  const url = URL.createObjectURL(file), img = new Image();
+  img.src = url;
+  await new Promise((res, rej) => { img.onload = res; img.onerror = () => rej(new Error('imagem não suportada')); });
+  return { id, name: file.name, url, img, w: img.naturalWidth, h: img.naturalHeight };
+}
+async function importLayers(files) {
+  if (!S.clips.length) return toast('Adicione o vídeo principal primeiro');
+  ac(); let added = 0;
+  for (const f of files) {
+    toast(`Carregando ${f.name}…`, 60000);
+    try {
+      let L;
+      if (/^image\//.test(f.type) || /\.(png|jpe?g|gif|webp|heic)$/i.test(f.name)) {
+        const im = await loadImage(f); images.set(im.id, im); dbPut('file:' + im.id, f);
+        L = { id: uid(), kind: 'image', srcId: im.id, name: f.name, start: S.t, in: 0, out: 3, x: 0.5, y: 0.5, scale: 0.5, volume: 0 };
+      } else {
+        const m = await loadMedia(f); media.set(m.id, m); dbPut('file:' + m.id, f);
+        L = { id: uid(), kind: 'video', srcId: m.id, name: f.name, start: S.t, in: 0, out: m.duration, x: 0.5, y: 0.5, scale: 1, volume: 0 };
+      }
+      commit(); S.layers.push(L); S.sel = { type: 'layer', id: L.id }; added++;
+    } catch (e) { console.error(e); toast('Não consegui abrir ' + f.name, 3000); }
+  }
+  if (added) toast('Camada adicionada. Arraste na prévia para mover.', 2200);
+  refresh();
+}
+function layerVideo(L) {
+  let v = layerEls.get(L.id); const m = media.get(L.srcId); if (!m) return null;
+  if (!v) {
+    v = document.createElement('video'); v.muted = true; v.playsInline = true; v.setAttribute('playsinline', ''); v.preload = 'auto';
+    v.src = m.url; v.addEventListener('seeked', () => { if (!E.playing) draw(); }); v.addEventListener('loadeddata', () => { if (!E.playing) draw(); });
+    $('#vpool').appendChild(v); layerEls.set(L.id, v);
+  }
+  return v;
+}
+function syncLayers(t) {
+  for (const L of S.layers) {
+    if (L.kind !== 'video') continue;
+    const v = layerVideo(L); if (!v) continue;
+    const len = L.out - L.in, active = t >= L.start && t < L.start + len, s = L.in + clamp(t - L.start, 0, Math.max(0, len - 0.02));
+    if (active && E.playing && !E.stalled) {
+      if (v.paused) v.play().catch(() => {});
+      if (!v.seeking && Math.abs(v.currentTime - s) > 0.25) v.currentTime = s;
+    } else {
+      if (!v.paused) v.pause();
+      const target = active ? s : (t < L.start && L.start - t < 1.5 ? L.in : null);
+      if (target != null && !v.seeking && v.readyState >= 1 && Math.abs(v.currentTime - target) > 0.04) v.currentTime = target;
+    }
+  }
+  for (const [id, v] of layerEls) if (!S.layers.some((l) => l.id === id)) { v.pause(); v.removeAttribute('src'); v.load(); v.remove(); layerEls.delete(id); }
+}
+function drawLayers(ctx, W, H, t, pre) {
+  if (pre) layerRects = [];
+  for (const L of S.layers) {
+    const len = L.out - L.in; if (t < L.start || t >= L.start + len) continue;
+    let src, sw, sh;
+    if (L.kind === 'image') { const im = images.get(L.srcId); if (!im) continue; src = im.img; sw = im.w; sh = im.h; }
+    else { const v = layerEls.get(L.id); if (!v || v.readyState < 2) continue; src = v; sw = v.videoWidth; sh = v.videoHeight; }
+    if (!sw || !sh) continue;
+    const w = L.scale * W, h = w * sh / sw, x = L.x * W - w / 2, y = L.y * H - h / 2;
+    ctx.drawImage(src, x, y, w, h);
+    if (pre) {
+      layerRects.push({ id: L.id, x, y, w, h });
+      if (S.sel?.type === 'layer' && S.sel.id === L.id && !E.playing) { ctx.save(); ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.setLineDash([6, 4]); ctx.strokeRect(x, y, w, h); ctx.restore(); }
+    }
+  }
+}
+function layerLanes() {
+  const lanes = [], res = new Map();
+  for (const L of [...S.layers].sort((a, b) => a.start - b.start)) {
+    let li = lanes.findIndex((e) => e <= L.start + 0.001); if (li < 0) { li = lanes.length; lanes.push(0); }
+    lanes[li] = L.start + L.out - L.in; res.set(L.id, li);
+  }
+  return { map: res, count: lanes.length };
+}
+function openLayerSheet(id) {
+  const L = S.layers.find((x) => x.id === id); if (!L) return;
+  const isImg = L.kind === 'image';
+  openSheet('layer', isImg ? 'Camada de imagem' : 'Camada de vídeo', `
+    ${rangeRow('ls', 'Tamanho', 5, 150, 1, Math.round(L.scale * 100), pctf)}
+    ${rangeRow('lx', 'Horizontal', 0, 100, 1, Math.round(L.x * 100), pctf)}
+    ${rangeRow('ly', 'Vertical', 0, 100, 1, Math.round(L.y * 100), pctf)}
+    ${isImg ? rangeRow('ld', 'Duração', 0.5, 30, 0.1, L.out - L.in, sec) : rangeRow('lv', 'Volume', 0, 200, 1, Math.round((L.volume || 0) * 100), pctf)}
+    <div class="chips"><button class="chip" id="l-center">Centralizar</button><button class="chip" id="l-full">Tela cheia</button></div>
+    <p class="note">Dica: arraste a camada na prévia para mover; com dois dedos, aumenta ou diminui.${isImg ? '' : ' O som deste vídeo começa em 0% (mudo).'}</p>`,
+  (b) => {
+    const sync = () => { [['ls', L.scale], ['lx', L.x], ['ly', L.y]].forEach(([k, v]) => { const el = b.querySelector(`[data-k="${k}"]`); el.value = Math.round(v * 100); b.querySelector(`[data-v="${k}"]`).textContent = Math.round(v * 100) + '%'; }); };
+    bindRanges(b, {
+      ls: { set: (v) => (L.scale = v / 100), fmt: pctf }, lx: { set: (v) => (L.x = v / 100), fmt: pctf }, ly: { set: (v) => (L.y = v / 100), fmt: pctf },
+      ld: { set: (v) => (L.out = L.in + v), fmt: sec, after: renderTimeline }, lv: { set: (v) => (L.volume = v / 100), fmt: pctf },
+    });
+    $('#l-center', b).onclick = () => { commit(); L.x = 0.5; L.y = 0.5; sync(); draw(); };
+    $('#l-full', b).onclick = () => {
+      commit(); L.x = 0.5; L.y = 0.5;
+      const sw = isImg ? images.get(L.srcId)?.w : layerEls.get(L.id)?.videoWidth, sh = isImg ? images.get(L.srcId)?.h : layerEls.get(L.id)?.videoHeight;
+      const a = S.aspect || 9 / 16; L.scale = sw && sh ? Math.max(1, (sw / sh) / a) : 1; sync(); draw();
+    };
+  });
+}
+function trimLayer(id, side) {
+  const L = S.layers.find((x) => x.id === id), off = S.t - L.start;
+  if (off < 0.05 || off > L.out - L.in - 0.05) return toast('Coloque o cursor dentro da camada selecionada');
+  commit();
+  if (side === 'start') { L.in += off; L.start = S.t; } else L.out = L.in + off;
+  refresh();
+}
+// arrastar / pinçar a camada na prévia
+const ptrs = new Map(); let ldrag = null;
+pv.addEventListener('pointerdown', (e) => {
+  ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (E.playing) return;
+  if (ldrag && ptrs.size === 2) {
+    const [p1, p2] = [...ptrs.values()]; ldrag.pinch = { d0: Math.hypot(p1.x - p2.x, p1.y - p2.y), s0: ldrag.L.scale };
+    pv.setPointerCapture(e.pointerId); return;
+  }
+  const rect = pv.getBoundingClientRect(), px = (e.clientX - rect.left) * pv.width / rect.width, py = (e.clientY - rect.top) * pv.height / rect.height;
+  const hit = [...layerRects].reverse().find((r) => px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h);
+  if (!hit) return;
+  const L = S.layers.find((l) => l.id === hit.id); if (!L) return;
+  if (!(S.sel?.type === 'layer' && S.sel.id === L.id)) select('layer', L.id);
+  ldrag = { L, sx: e.clientX, sy: e.clientY, x0: L.x, y0: L.y, pend: snap(), rect, moved: false };
+  pv.setPointerCapture(e.pointerId);
+});
+pv.addEventListener('pointermove', (e) => {
+  if (!ptrs.has(e.pointerId)) return;
+  ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (!ldrag) return;
+  if (ldrag.pinch && ptrs.size >= 2) {
+    const [p1, p2] = [...ptrs.values()]; ldrag.L.scale = clamp(ldrag.pinch.s0 * Math.hypot(p1.x - p2.x, p1.y - p2.y) / (ldrag.pinch.d0 || 1), 0.05, 3);
+  } else if (!ldrag.pinch) {
+    ldrag.L.x = clamp(ldrag.x0 + (e.clientX - ldrag.sx) / ldrag.rect.width, -0.5, 1.5);
+    ldrag.L.y = clamp(ldrag.y0 + (e.clientY - ldrag.sy) / ldrag.rect.height, -0.5, 1.5);
+  }
+  ldrag.moved = true; draw();
+});
+const endPtr = (e) => {
+  ptrs.delete(e.pointerId);
+  if (ldrag && ptrs.size === 0) { if (ldrag.moved) pushHist(ldrag.pend); ldrag = null; if (sheetKind === 'layer' && S.sel) openLayerSheet(S.sel.id); }
+};
+pv.addEventListener('pointerup', endPtr); pv.addEventListener('pointercancel', endPtr);
 
 // ---------- Legendas ----------
 let capTab = 'texto';
@@ -1435,11 +1749,12 @@ const dbGet = (k) => dbOp('readonly', (s) => s.get(k));
 let saveTimer = 0;
 function saveSoon() { clearTimeout(saveTimer); saveTimer = setTimeout(saveProject, 800); }
 function saveProject() {
-  const used = new Set(S.clips.map((c) => c.mediaId));
+  const used = new Set([...S.clips.map((c) => c.mediaId), ...S.layers.filter((l) => l.kind === 'video').map((l) => l.srcId)]);
   const usedBuf = new Set(S.audios.map((a) => a.bufferId));
   dbPut('project', {
     v: 1, snap: snap(), words: S.words, aspect: S.aspect, t: S.t,
     media: [...media.values()].filter((m) => used.has(m.id)).map(({ url, ...m }) => m),
+    images: [...images.values()].filter((im) => S.layers.some((l) => l.srcId === im.id)).map(({ id, name, w, h }) => ({ id, name, w, h })),
     buffers: [...buffers.entries()].filter(([id]) => usedBuf.has(id)).map(([id, b]) => ({ id, name: b.name, fileKey: b.fileKey })),
   });
 }
@@ -1456,7 +1771,13 @@ async function restoreProject() {
       const file = await dbGet(b.fileKey); if (!file) continue;
       if (buffers.has(b.id)) continue; try { const buf = await extractAudio(file); buffers.set(b.id, { buffer: buf, peaks: computePeaks(buf), name: b.name, fileKey: b.fileKey }); } catch {}
     }
-    Object.assign(S, { zooms: [] }, JSON.parse(p.snap)); S.clips.forEach(normClip);
+    Object.assign(S, { zooms: [], layers: [] }, JSON.parse(p.snap)); S.clips.forEach(normClip);
+    // projetos antigos: o fade geral vira fade no primeiro/último clipe
+    if (S.fx.fadeIn?.on && S.clips[0]) { S.clips[0].vfi = S.fx.fadeIn.dur; S.clips[0].vfa = S.fx.fadeAudio !== false; }
+    if (S.fx.fadeOut?.on && S.clips.length) { const lc = S.clips[S.clips.length - 1]; lc.vfo = S.fx.fadeOut.dur; lc.vfa = S.fx.fadeAudio !== false; }
+    S.fx.fadeIn.on = false; S.fx.fadeOut.on = false;
+    for (const im of p.images || []) { const file = await dbGet('file:' + im.id); if (file) { try { images.set(im.id, await loadImage(file, im.id)); } catch {} } }
+    S.layers = S.layers.filter((l) => (l.kind === 'image' ? images.has(l.srcId) : media.has(l.srcId)));
     S.clips = S.clips.filter((c) => media.has(c.mediaId));
     S.audios = S.audios.filter((a) => buffers.has(a.bufferId));
     S.words = p.words || {}; S.aspect = p.aspect; S.t = clamp(p.t || 0, 0, total());
@@ -1466,7 +1787,7 @@ async function restoreProject() {
 }
 async function newProject() {
   if (S.clips.length && !confirm('Começar um projeto novo? O atual será apagado.')) return;
-  pause(); S.clips = []; S.audios = []; S.captions = []; S.words = {}; S.aspect = null; S.t = 0; S.sel = null; S.origVolume = 1;
+  pause(); S.clips = []; S.audios = []; S.layers = []; S.zooms = []; images.forEach((im) => URL.revokeObjectURL(im.url)); images.clear(); S.captions = []; S.words = {}; S.aspect = null; S.t = 0; S.sel = null; S.origVolume = 1;
   media.forEach((m) => URL.revokeObjectURL(m.url)); media.clear(); buffers.clear(); hist.past = []; hist.future = [];
   pool.forEach((v) => { v._clipId = null; v._url = null; v.removeAttribute('src'); v.load(); });
   try { await dbOp('readwrite', (s) => s.clear()); } catch {}
@@ -1480,7 +1801,7 @@ let toastT = 0;
 function toast(msg, ms = 1800) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), ms); }
 function refresh() {
   $('#empty').classList.toggle('hide', S.clips.length > 0);
-  if (S.sel && !(S.sel.type === 'clip' || S.sel.type === 'clipaudio' ? S.clips : S.sel.type === 'audio' ? S.audios : S.captions).some((x) => x.id === S.sel.id)) S.sel = null;
+  if (S.sel && !(S.sel.type === 'clip' || S.sel.type === 'clipaudio' ? S.clips : S.sel.type === 'audio' ? S.audios : S.sel.type === 'layer' ? S.layers : S.captions).some((x) => x.id === S.sel.id)) S.sel = null;
   sizePreview(); renderTimeline(); renderToolbar(); updTime(); updPlay(); draw(); saveSoon();
 }
 
@@ -1496,6 +1817,7 @@ $('#btn-export').onclick = openExport;
 $('#btn-add-first').onclick = () => $('#file-video').click();
 $('#sheet-close').onclick = closeSheet;
 $('#file-video').onchange = (e) => { const f = [...e.target.files]; e.target.value = ''; if (f.length) importVideos(f); };
+$('#file-layer').onchange = (e) => { const f = [...e.target.files]; e.target.value = ''; if (f.length) importLayers(f); };
 $('#file-audio').onchange = (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) addAudioFromFile(f); };
 window.addEventListener('resize', () => renderTimeline());
 document.addEventListener('visibilitychange', () => { if (document.hidden && E.playing && !E.exporting) pause(); if (document.hidden) saveProject(); });
@@ -1507,4 +1829,4 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.ser
 updUndo(); refresh(); restoreProject();
 
 // para testes
-window.__corte = { S, importVideos, addAudioFromFile, play, pause, seekTo, transcribeAll, startExport, media, buffers, extractAudio, decodeMp4Aac, decodeAudio };
+window.__corte = { S, importVideos, addAudioFromFile, play, pause, seekTo, transcribeAll, startExport, media, buffers, transSound, sfxBuffer, extractAudio, decodeMp4Aac, decodeAudio };
