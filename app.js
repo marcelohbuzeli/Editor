@@ -660,19 +660,20 @@ function renderToolbar() {
       ['scissors', 'Dividir', splitAtPlayhead], ['trash', 'Apagar', () => deleteClip(sel.id), 'danger'],
       ['left', 'Mover', () => moveClip(sel.id, -1)], ['right', 'Mover', () => moveClip(sel.id, 1)],
       ['trimL', 'Aparar início', () => trimClip(sel.id, 'start')], ['trimR', 'Aparar fim', () => trimClip(sel.id, 'end')],
-      ['fade', 'Fade', () => openClipFade(sel.id)], ['zoomIn', 'Zoom', () => openZoomSheet(sel.id)], ['zap', 'Transição', () => openCutSheet(sel.id)], ['volume', 'Áudio', () => openClipAudioSheet(sel.id)],
+      ['fade', 'Fade', () => openClipFade(sel.id)], ['zoomIn', 'Zoom', () => openZoomSheet(sel.id)],
+      ['zap', 'Transições', () => openTransitionFor(sel.id)], ['volume', 'Som', openAudioHub],
       ['x', 'Fechar', () => select(null)],
     ];
   } else if (sel?.type === 'clipaudio') {
     items = [
-      ['scissors', 'Dividir', splitAtPlayhead], ['sliders', 'Volume e fade', () => openClipAudioSheet(sel.id)],
+      ['scissors', 'Dividir', splitAtPlayhead], ['volume', 'Som', openAudioHub],
       ['unlink', 'Desvincular', () => unlinkAudio(sel.id)], ['trash', 'Apagar áudio', () => deleteClipAudio(sel.id), 'danger'],
       ['x', 'Fechar', () => select(null)],
     ];
   } else if (sel?.type === 'audio') {
     items = [
       ['scissors', 'Dividir', splitAtPlayhead], ['trash', 'Apagar', () => deleteAudio(sel.id), 'danger'],
-      ['sliders', 'Volume e fade', () => openAudioSheet(sel.id)], ['target', 'Início aqui', () => audioToPlayhead(sel.id)],
+      ['volume', 'Som', openAudioHub], ['target', 'Início aqui', () => audioToPlayhead(sel.id)],
       ['trimL', 'Aparar início', () => trimAudio(sel.id, 'start')], ['trimR', 'Aparar fim', () => trimAudio(sel.id, 'end')],
       ['x', 'Fechar', () => select(null)],
     ];
@@ -691,10 +692,8 @@ function renderToolbar() {
     ];
   } else {
     items = [
-      ['video', 'Vídeo', () => $('#file-video').click()], ['music', 'Áudio de vídeo', () => $('#file-audio').click()],
-      ['wave', 'SFX', openSfx], ['type', 'Legendas', () => openCaptions()], ['zap', 'Transições', openTransitions],
-      ['layers', 'Camada', () => $('#file-layer').click()], ['zoomIn', 'Zoom', zoomFromToolbar],
-      ['volume', 'Som original', openOrigVolume], ['scissors', 'Dividir', splitAtPlayhead],
+      ['plus', 'Novo', () => $('#file-video').click()], ['music', 'Áudio', openAudioHub],
+      ['type', 'Legenda', () => openCaptions()], ['layers', 'Camada', () => $('#file-layer').click()],
     ];
   }
   tb.innerHTML = '';
@@ -925,7 +924,7 @@ async function openTransitions() {
     ${rangeRow('burnDb', 'Volume', -30, 0, 1, fx.burnDb, (v) => `${v} dB`)}
     <button class="chip" id="brn-test">${inlineIc('play', 12)} Ouvir</button>
     <p class="note">Os sons vêm da biblioteca de SFX (com o trecho que você cortou lá). O ponto mais forte do som fica exatamente no corte.</p>
-    <p class="note">O fade do começo e do final do vídeo fica no botão Fade. Dica: toque no ícone entre dois clipes, na linha do tempo, para escolher a transição só daquele corte.</p>
+    <p class="note">O fade fica no botão Fade do clipe. Dica: toque no ícone entre dois clipes, na linha do tempo, para escolher a transição só daquele corte.</p>
   `, (b) => {
     const tog = (id, fn) => $(id, b).addEventListener('change', (e) => { commit(); fn(e.target.checked); draw(); renderTimeline(); });
     tog('#clk', (v) => (fx.click = v));
@@ -970,49 +969,15 @@ function openCutSheet(clipId) {
     </div>
     <button class="btn" id="tr-all">Aplicar esta transição a todos os cortes</button>
     <button class="btn" id="tr-prev">${inlineIc('play', 12)} Ver o corte</button>
-    <p class="note">Duração e volume dos sons ficam em Transições.</p>
+    <button class="btn" id="tr-more">${inlineIc('sliders')} Ajustes das transições (duração, som, todos os cortes)</button>
   `, (b) => {
+    $('#tr-more', b).onclick = () => openTransitions();
     b.querySelectorAll('[data-tr]').forEach((el) => el.onclick = () => {
       commit(); c.transition = el.dataset.tr;
       b.querySelectorAll('[data-tr]').forEach((x) => x.classList.toggle('on', x === el)); renderTimeline(); draw();
     });
     $('#tr-all', b).onclick = () => { commit(); S.clips.forEach((x, k) => (x.transition = k ? c.transition : 'none')); renderTimeline(); toast('Aplicado a todos os cortes'); };
     $('#tr-prev', b).onclick = () => { seekTo(Math.max(0, layout()[i].start - 1.2)); play(); };
-  });
-}
-function openClipAudioSheet(id) {
-  const c = S.clips.find((x) => x.id === id); if (!c) return;
-  const m = media.get(c.mediaId);
-  if (!m?.bufferId) return toast('Não consegui ler o áudio deste vídeo', 2500);
-  if (c.aOn === false) return toast('O áudio deste clipe foi apagado ou desvinculado (use Desfazer para voltar)', 3000);
-  const len = c.out - c.in, maxF = Math.min(10, len / 2).toFixed(1);
-  openSheet('clipaudio', 'Áudio original do clipe', `
-    ${rangeRow('v', 'Volume', 0, 200, 1, Math.round((c.volume ?? 1) * 100), pctf)}
-    ${rangeRow('fi', 'Fade in', 0, maxF, 0.1, c.afi || 0, sec)}
-    ${rangeRow('fo', 'Fade out', 0, maxF, 0.1, c.afo || 0, sec)}
-    <p class="note">Este áudio está vinculado ao clipe: cortar ou apagar o clipe corta/apaga o áudio junto.</p>
-    <button class="btn" id="ca-unlink">${inlineIc('unlink')} Desvincular do clipe</button>
-    <button class="btn" id="ca-del" style="color:#ff6b6b">${inlineIc('trash')} Apagar este áudio</button>
-  `, (b) => {
-    bindRanges(b, {
-      v: { set: (v) => (c.volume = v / 100), fmt: pctf, after: renderTimeline },
-      fi: { set: (v) => (c.afi = v), fmt: sec, after: renderTimeline },
-      fo: { set: (v) => (c.afo = v), fmt: sec, after: renderTimeline },
-    });
-    $('#ca-unlink', b).onclick = () => unlinkAudio(c.id);
-    $('#ca-del', b).onclick = () => deleteClipAudio(c.id);
-  });
-}
-function openOrigVolume() {
-  openSheet('vol', 'Som original do vídeo', rangeRow('v', 'Volume', 0, 200, 1, Math.round(S.origVolume * 100), pctf) + `
-    <p class="note">Afeta o áudio gravado nos vídeos (não mexe nas músicas/áudios adicionados).</p>
-    <button class="btn" id="o-del" style="color:#ff6b6b">Apagar o áudio original de todos os clipes</button>
-    <button class="btn" id="o-back">Restaurar o áudio original em todos</button>
-    <p class="note">Para trocar a trilha: apague o áudio original e adicione outro em "Áudio de vídeo".</p>`,
-  (b) => {
-    bindRanges(b, { v: { set: (v) => (S.origVolume = v / 100), fmt: pctf, after: renderTimeline } });
-    $('#o-del', b).onclick = () => { commit(); S.clips.forEach((c) => (c.aOn = false)); refresh(); toast('Áudio original removido'); };
-    $('#o-back', b).onclick = () => { commit(); S.clips.forEach((c) => (c.aOn = true)); refresh(); toast('Áudio original restaurado'); };
   });
 }
 // ---------- Zoom in / zoom out (efeito dentro do clipe) ----------
@@ -1076,10 +1041,6 @@ function openZoomSheet(clipId, editId) {
     b.querySelectorAll('[data-ze]').forEach((el) => el.onclick = () => openZoomSheet(clipId, el.dataset.ze));
   });
 }
-function zoomFromToolbar() {
-  if (!S.clips.length) return toast('Adicione um vídeo primeiro');
-  openZoomSheet(clipAt(S.t).clip.id);
-}
 
 // ---------- Biblioteca de SFX ----------
 let sfxIndex = null, sfxPrev = null;
@@ -1128,32 +1089,6 @@ async function openSfx() {
         await addAudioFromFile(new File([blob], s.file, { type: 'audio/mpeg' }), s.name, [a, z]);
       } catch { toast('Não consegui adicionar este som'); }
     });
-  });
-}
-function openAudioSheet(id) {
-  const a = S.audios.find((x) => x.id === id); if (!a) return;
-  const b0 = buffers.get(a.bufferId);
-  const len = a.out - a.in, maxF = Math.max(0.1, Math.min(10, len / 2)).toFixed(1);
-  openSheet('audio', a.name || 'Áudio', `
-    <div class="sec">Trecho do áudio</div>
-    <div id="a-trim"></div>
-    ${rangeRow('v', 'Volume', 0, 200, 1, Math.round((a.volume ?? 1) * 100), pctf)}
-    ${rangeRow('fi', 'Fade in', 0, maxF, 0.1, Math.min(a.fadeIn || 0, maxF), sec)}
-    ${rangeRow('fo', 'Fade out', 0, maxF, 0.1, Math.min(a.fadeOut || 0, maxF), sec)}
-    <p class="note">Arraste as alças amarelas para escolher o trecho. O começo do áudio na linha do tempo continua no mesmo lugar ("Início aqui" move para o cursor).</p>
-  `, (b) => {
-    bindRanges(b, {
-      v: { set: (v) => (a.volume = v / 100), fmt: pctf, after: renderTimeline },
-      fi: { set: (v) => (a.fadeIn = v), fmt: sec, after: renderTimeline },
-      fo: { set: (v) => (a.fadeOut = v), fmt: sec, after: renderTimeline },
-    });
-    if (b0) {
-      let pend = null; const sel = { in: a.in, out: a.out };
-      makeTrimmer($('#a-trim', b), b0.buffer, sel, {
-        onChange: () => { if (!pend) pend = snap(); a.in = sel.in; a.out = sel.out; },
-        onDone: () => { if (pend) { pushHist(pend); pend = null; } renderTimeline(); },
-      });
-    }
   });
 }
 
@@ -1431,6 +1366,92 @@ const endPtr = (e) => {
   if (ldrag && ptrs.size === 0) { if (ldrag.moved) pushHist(ldrag.pend); ldrag = null; if (sheetKind === 'layer' && S.sel) openLayerSheet(S.sel.id); }
 };
 pv.addEventListener('pointerup', endPtr); pv.addEventListener('pointercancel', endPtr);
+
+// ---------- Central de áudio (botão Áudio / Som) ----------
+// Mostra o som do que estiver selecionado (clipe ou trilha), e as opções SFX e Extrair áudio.
+function openAudioHub() {
+  const sel = S.sel, parts = [];
+  const clip = sel && (sel.type === 'clip' || sel.type === 'clipaudio') ? S.clips.find((x) => x.id === sel.id) : null;
+  const track = sel?.type === 'audio' ? S.audios.find((x) => x.id === sel.id) : null;
+
+  if (clip) {
+    const m = media.get(clip.mediaId), has = !!(m && buffers.get(m.bufferId));
+    if (has && clip.aOn !== false) {
+      const len = clip.out - clip.in, maxF = Math.max(0.1, Math.min(10, len / 2)).toFixed(1);
+      parts.push({
+        html: `<div class="sec">Som deste clipe</div>
+          ${rangeRow('cv', 'Volume', 0, 200, 1, Math.round((clip.volume ?? 1) * 100), pctf)}
+          ${rangeRow('cfi', 'Fade in', 0, maxF, 0.1, Math.min(clip.afi || 0, maxF), sec)}
+          ${rangeRow('cfo', 'Fade out', 0, maxF, 0.1, Math.min(clip.afo || 0, maxF), sec)}
+          <div class="chips"><button class="chip" id="h-unlink">${inlineIc('unlink')} Desvincular</button><button class="chip" id="h-cdel" style="color:#ff6b6b">${inlineIc('trash')} Apagar som</button></div>
+          <p class="note">Vinculado ao clipe: cortar ou apagar o clipe corta/apaga o som junto.</p>`,
+        bind: (b) => {
+          bindRanges(b, {
+            cv: { set: (v) => (clip.volume = v / 100), fmt: pctf, after: renderTimeline },
+            cfi: { set: (v) => (clip.afi = v), fmt: sec, after: renderTimeline },
+            cfo: { set: (v) => (clip.afo = v), fmt: sec, after: renderTimeline },
+          });
+          $('#h-unlink', b).onclick = () => unlinkAudio(clip.id);
+          $('#h-cdel', b).onclick = () => deleteClipAudio(clip.id);
+        },
+      });
+    } else {
+      parts.push({ html: `<div class="sec">Som deste clipe</div><p class="note">${has ? 'O som deste clipe foi apagado ou desvinculado. Use Desfazer, ou "Restaurar em todos" abaixo.' : 'Não consegui ler o áudio deste vídeo.'}</p>`, bind: () => {} });
+    }
+  }
+  if (track) {
+    const b0 = buffers.get(track.bufferId), len = track.out - track.in, maxF = Math.max(0.1, Math.min(10, len / 2)).toFixed(1);
+    parts.push({
+      html: `<div class="sec">Som da trilha: ${esc(track.name || 'Áudio')}</div>
+        <div id="h-trim"></div>
+        ${rangeRow('tv', 'Volume', 0, 200, 1, Math.round((track.volume ?? 1) * 100), pctf)}
+        ${rangeRow('tfi', 'Fade in', 0, maxF, 0.1, Math.min(track.fadeIn || 0, maxF), sec)}
+        ${rangeRow('tfo', 'Fade out', 0, maxF, 0.1, Math.min(track.fadeOut || 0, maxF), sec)}
+        <p class="note">Arraste as alças amarelas para escolher o trecho do áudio.</p>`,
+      bind: (b) => {
+        bindRanges(b, {
+          tv: { set: (v) => (track.volume = v / 100), fmt: pctf, after: renderTimeline },
+          tfi: { set: (v) => (track.fadeIn = v), fmt: sec, after: renderTimeline },
+          tfo: { set: (v) => (track.fadeOut = v), fmt: sec, after: renderTimeline },
+        });
+        if (b0) {
+          let pend = null; const s = { in: track.in, out: track.out };
+          makeTrimmer($('#h-trim', b), b0.buffer, s, {
+            onChange: () => { if (!pend) pend = snap(); track.in = s.in; track.out = s.out; },
+            onDone: () => { if (pend) { pushHist(pend); pend = null; } renderTimeline(); },
+          });
+        }
+      },
+    });
+  }
+  parts.push({
+    html: `<div class="sec">Adicionar som</div>
+      <button class="btn" id="h-sfx">${inlineIc('wave')} SFX</button>
+      <button class="btn" id="h-extract">${inlineIc('music')} Extrair áudio de um vídeo</button>
+      <p class="note">Entra na linha do tempo no cursor (${fmt(S.t)}).</p>`,
+    bind: (b) => {
+      $('#h-sfx', b).onclick = () => openSfx();
+      $('#h-extract', b).onclick = () => $('#file-audio').click();
+    },
+  });
+  if (S.clips.length && !track) {
+    parts.push({
+      html: `<div class="sec">Áudio original de todos os clipes</div>
+        ${rangeRow('ov', 'Volume', 0, 200, 1, Math.round(S.origVolume * 100), pctf)}
+        <div class="chips"><button class="chip" id="h-odel" style="color:#ff6b6b">Apagar em todos</button><button class="chip" id="h-oback">Restaurar em todos</button></div>`,
+      bind: (b) => {
+        bindRanges(b, { ov: { set: (v) => (S.origVolume = v / 100), fmt: pctf, after: renderTimeline } });
+        $('#h-odel', b).onclick = () => { commit(); S.clips.forEach((c) => (c.aOn = false)); refresh(); openAudioHub(); toast('Áudio original removido'); };
+        $('#h-oback', b).onclick = () => { commit(); S.clips.forEach((c) => (c.aOn = true)); refresh(); openAudioHub(); toast('Áudio original restaurado'); };
+      },
+    });
+  }
+  openSheet('audiohub', clip || track ? 'Som' : 'Áudio', parts.map((p) => p.html).join(''), (b) => parts.forEach((p) => p.bind(b)));
+}
+function openTransitionFor(clipId) {
+  const i = S.clips.findIndex((c) => c.id === clipId);
+  if (i > 0) openCutSheet(clipId); else openTransitions();
+}
 
 // ---------- Legendas ----------
 let capTab = 'texto';
