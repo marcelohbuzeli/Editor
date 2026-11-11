@@ -36,6 +36,10 @@ const ICONS = {
   file: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M12 12v6M9 15h6"/>',
   merge: '<path d="M12 4v10M7 9l5 5 5-5M5 20h14"/>',
   flame: '<path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.07-2.14-.22-4.05 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.15.43-2.29 1-3a2.5 2.5 0 0 0 2.5 2.5z"/>',
+  zoomIn: '<circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3M11 8v6M8 11h6"/>',
+  zoomOut: '<circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3M8 11h6"/>',
+  fade: '<rect x="3" y="3" width="18" height="18" rx="3"/><path d="M3 21 21 3M3 15l12-12M3 9l6-6"/>',
+  wave: '<path d="M2 12h2M6 8v8M10 4v16M14 7v10M18 10v4M22 12h0"/>',
   unlink: '<path d="m18.84 12.25 1.72-1.71a5 5 0 0 0-7.07-7.07l-1.72 1.71M5.17 11.75l-1.71 1.71a5 5 0 0 0 7.07 7.07l1.71-1.71M8 2v3M2 8h3M16 22v-3M22 16h-3"/>',
 };
 const ic = (n) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICONS[n]}</svg>`;
@@ -49,9 +53,9 @@ const FONTS = [
 const COLORS = ['#FFFFFF', '#F7E8B0', '#FFD84D', '#000000'];
 const fontCss = (id) => (FONTS.find((f) => f.id === id) || FONTS[0]).css;
 
-const DEFAULT_CAP = { font: 'Poppins', weight: 700, size: 72, color: '#FFFFFF', shadow: 60, blur: 12, y: 0.72, upper: false };
+const DEFAULT_CAP = { font: 'Poppins', weight: 700, size: 60, color: '#FFFFFF', shadow: 60, blur: 12, y: 0.75, upper: false };
 const DEFAULT_FX = {
-  fadeIn: { on: false, dur: 0.5 }, fadeOut: { on: true, dur: 1.0 }, fadeAudio: true,
+  fadeIn: { on: false, dur: 0.5 }, fadeOut: { on: false, dur: 1.0 }, fadeAudio: true,
   flashDur: 0.3, click: true, clickDb: -10, autoTr: 'flash',
   burnDur: 1.0, burnSound: true, burnDb: -12,
 };
@@ -65,13 +69,15 @@ const S = {
   words: {},      // mediaId -> [{ text, start, end }]
   cap: { ...DEFAULT_CAP, ...(prefs.cap || {}) },
   fx: { ...structuredClone(DEFAULT_FX), ...(prefs.fx || {}) },
-  maxWords: prefs.maxWords || 4,
   origVolume: 1,
   aspect: null,
   pps: 50,        // pixels por segundo na linha do tempo
+  zooms: [],     // efeitos de zoom: { id, clipId, off (s desde o início do clipe), dur, type: 'in'|'out', amount }
   t: 0,
   sel: null,      // { type: 'clip'|'audio'|'caption', id }
 };
+// v3: novos padrões de legenda (60 / 75%) e fades desligados por padrão
+if ((prefs.v || 0) < 3) { S.cap.size = 60; S.cap.y = 0.75; S.fx.fadeOut.on = false; S.fx.fadeIn.on = false; }
 if (prefs.fx && prefs.fx.autoTr == null) S.fx.autoTr = prefs.fx.autoFlash === false ? 'none' : 'flash';
 // Cada clipe tem o áudio original vinculado: aOn (ligado), volume, afi/afo (fade in/out em segundos)
 const normClip = (c) => { c.aOn ??= true; c.volume ??= 1; c.afi ??= 0; c.afo ??= 0; c.transition ??= 'none'; return c; };
@@ -80,15 +86,15 @@ const buffers = new Map();  // id -> { buffer, peaks, name, fileKey }
 
 function loadPrefs() { try { return JSON.parse(localStorage.getItem('corte-prefs') || '{}'); } catch { return {}; } }
 function savePrefs() {
-  try { localStorage.setItem('corte-prefs', JSON.stringify({ cap: S.cap, fx: S.fx, maxWords: S.maxWords, engine: prefs.engine, model: prefs.model, groqKey: prefs.groqKey })); } catch {}
+  try { localStorage.setItem('corte-prefs', JSON.stringify({ v: 3, cap: S.cap, fx: S.fx, groqKey: prefs.groqKey, res: prefs.res, zoomDef: prefs.zoomDef })); } catch {}
 }
 
 // ---------- Histórico (desfazer/refazer) ----------
 const hist = { past: [], future: [] };
-const snap = () => JSON.stringify({ clips: S.clips, audios: S.audios, captions: S.captions, fx: S.fx, cap: S.cap, origVolume: S.origVolume });
+const snap = () => JSON.stringify({ clips: S.clips, audios: S.audios, captions: S.captions, zooms: S.zooms, fx: S.fx, cap: S.cap, origVolume: S.origVolume });
 function pushHist(s) { hist.past.push(s); if (hist.past.length > 80) hist.past.shift(); hist.future = []; updUndo(); savePrefs(); saveSoon(); }
 const commit = () => pushHist(snap());
-function restore(str) { Object.assign(S, JSON.parse(str)); S.clips.forEach(normClip); S.sel = null; refresh(); saveSoon(); }
+function restore(str) { Object.assign(S, { zooms: [] }, JSON.parse(str)); S.clips.forEach(normClip); S.sel = null; refresh(); saveSoon(); }
 function undo() { if (!hist.past.length) return; hist.future.push(snap()); restore(hist.past.pop()); updUndo(); }
 function redo() { if (!hist.future.length) return; hist.past.push(snap()); restore(hist.future.pop()); updUndo(); }
 function updUndo() { $('#btn-undo').disabled = !hist.past.length; $('#btn-redo').disabled = !hist.future.length; }
@@ -377,7 +383,7 @@ function render(ctx, W, H, t, st) {
   ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
   const v = st.v, vw = v.videoWidth, vh = v.videoHeight;
   if (vw && vh) {
-    const k = Math.min(W / vw, H / vh), w = vw * k, h = vh * k;
+    const k = Math.min(W / vw, H / vh) * zoomAt(t, st.r), w = vw * k, h = vh * k;
     ctx.drawImage(v, (W - w) / 2, (H - h) / 2, w, h);
   }
   const cap = captionAt(t, st.r);
@@ -531,6 +537,11 @@ function renderTimeline() {
     el.innerHTML = `<span class="dur">${(r.end - r.start).toFixed(1)}s</span>`;
     el.onclick = (e) => { e.stopPropagation(); select('clip', r.clip.id); };
     tv.appendChild(el);
+    for (const z of S.zooms.filter((x) => x.clipId === r.clip.id)) {
+      const zb = document.createElement('button'); zb.className = 'zm'; zb.style.left = (h + (r.start + z.off) * pps + 3) + 'px';
+      zb.innerHTML = ic(z.type === 'in' ? 'zoomIn' : 'zoomOut'); zb.setAttribute('aria-label', 'Zoom');
+      zb.onclick = (e) => { e.stopPropagation(); openZoomSheet(r.clip.id, z.id); }; tv.appendChild(zb);
+    }
     if (r.i > 0) {
       const b = document.createElement('button'); const tr = r.clip.transition || 'none';
       b.className = 'tr ' + tr; b.style.left = (h + r.start * pps) + 'px';
@@ -626,7 +637,7 @@ function renderToolbar() {
       ['scissors', 'Dividir', splitAtPlayhead], ['trash', 'Apagar', () => deleteClip(sel.id), 'danger'],
       ['left', 'Mover', () => moveClip(sel.id, -1)], ['right', 'Mover', () => moveClip(sel.id, 1)],
       ['trimL', 'Aparar início', () => trimClip(sel.id, 'start')], ['trimR', 'Aparar fim', () => trimClip(sel.id, 'end')],
-      ['zap', 'Transição', () => openCutSheet(sel.id)], ['volume', 'Áudio', () => openClipAudioSheet(sel.id)],
+      ['zoomIn', 'Zoom', () => openZoomSheet(sel.id)], ['zap', 'Transição', () => openCutSheet(sel.id)], ['volume', 'Áudio', () => openClipAudioSheet(sel.id)],
       ['x', 'Fechar', () => select(null)],
     ];
   } else if (sel?.type === 'clipaudio') {
@@ -651,7 +662,8 @@ function renderToolbar() {
   } else {
     items = [
       ['video', 'Vídeo', () => $('#file-video').click()], ['music', 'Áudio de vídeo', () => $('#file-audio').click()],
-      ['type', 'Legendas', () => openCaptions()], ['zap', 'Transições', openTransitions],
+      ['wave', 'SFX', openSfx], ['type', 'Legendas', () => openCaptions()], ['zap', 'Transições', openTransitions],
+      ['fade', 'Fade', openFades], ['zoomIn', 'Zoom', zoomFromToolbar],
       ['volume', 'Som original', openOrigVolume], ['scissors', 'Dividir', splitAtPlayhead],
     ];
   }
@@ -673,6 +685,8 @@ function splitAtPlayhead() {
   // o áudio vinculado é cortado junto: o fade in fica na parte da esquerda, o fade out na da direita
   const nc = { ...r.clip, id: uid(), in: s, transition: newClipTransition(), afi: 0 };
   r.clip.out = s; r.clip.afo = 0; S.clips.splice(r.i + 1, 0, nc);
+  const cut = s - r.clip.in;
+  S.zooms.forEach((z) => { if (z.clipId === r.clip.id && z.off >= cut) { z.clipId = nc.id; z.off -= cut; } });
   if (S.sel?.type === 'clipaudio' && S.sel.id === r.clip.id) S.sel = null;
   refresh();
 }
@@ -694,7 +708,7 @@ function deleteClipAudio(clipId) {
   commit(); c.aOn = false; S.sel = null; if (sheetKind) closeSheet(); refresh();
 }
 function deleteClip(id) {
-  commit(); S.clips = S.clips.filter((c) => c.id !== id); S.sel = null;
+  commit(); S.clips = S.clips.filter((c) => c.id !== id); S.zooms = S.zooms.filter((z) => z.clipId !== id); S.sel = null;
   if (S.clips[0]) S.clips[0].transition = S.clips[0].transition; // primeiro clipe não usa transição
   S.t = clamp(S.t, 0, total()); refresh();
 }
@@ -708,7 +722,12 @@ function trimClip(id, side) {
   const L = layout(), r = L.find((x) => x.clip.id === id);
   if (!r || S.t <= r.start + 0.05 || S.t >= r.end - 0.05) return toast('Coloque o cursor dentro do clipe selecionado');
   commit();
-  if (side === 'start') { r.clip.in += S.t - r.start; S.t = r.start; } else r.clip.out = r.clip.in + (S.t - r.start);
+  const d = S.t - r.start;
+  if (side === 'start') {
+    r.clip.in += d; S.t = r.start;
+    S.zooms.forEach((z) => { if (z.clipId === id) z.off -= d; });
+    S.zooms = S.zooms.filter((z) => z.clipId !== id || z.off >= -0.01).map((z) => (z.clipId === id && z.off < 0 ? { ...z, off: 0 } : z));
+  } else { r.clip.out = r.clip.in + d; S.zooms = S.zooms.filter((z) => z.clipId !== id || z.off < d); }
   refresh();
 }
 function splitAudio(id) {
@@ -795,17 +814,17 @@ function grabThumb(v, t) {
     v.currentTime = t;
   });
 }
-async function addAudioFromFile(f) {
-  toast('Extraindo áudio…', 60000);
+async function addAudioFromFile(f, label) {
+  toast(label ? 'Adicionando…' : 'Extraindo áudio…', 60000);
   try {
     const buf = await extractAudio(f);
     const bid = uid();
     buffers.set(bid, { buffer: buf, peaks: computePeaks(buf), name: f.name, fileKey: 'file:' + bid });
     dbPut('file:' + bid, f);
     commit();
-    const a = { id: uid(), bufferId: bid, name: f.name.replace(/\.[^.]+$/, ''), start: S.clips.length ? S.t : 0, in: 0, out: buf.duration, volume: 1, fadeIn: 0, fadeOut: 0 };
+    const a = { id: uid(), bufferId: bid, name: label || f.name.replace(/\.[^.]+$/, ''), start: S.clips.length ? S.t : 0, in: 0, out: buf.duration, volume: 1, fadeIn: 0, fadeOut: 0 };
     S.audios.push(a); S.sel = { type: 'audio', id: a.id };
-    toast('Áudio extraído e adicionado à linha do tempo', 2000);
+    toast(label ? `${label} adicionado em ${fmt(a.start)}` : 'Áudio extraído e adicionado à linha do tempo', 2000);
     refresh();
   } catch (e) { console.error(e); toast('Não consegui extrair o áudio deste arquivo', 3000); }
 }
@@ -851,7 +870,7 @@ const pctf = (v) => `${Math.round(v)}%`;
 const inlineIc = (n, s = 14) => ic(n).replace('<svg', `<svg style="width:${s}px;height:${s}px;display:inline;vertical-align:-2px"`);
 function playSfx(buf, db) { if (!buf) return toast('Som ainda carregando…'); const c = ac(); c.resume(); const s = c.createBufferSource(); s.buffer = buf; const g = c.createGain(); g.gain.value = dbToGain(db); s.connect(g).connect(c.destination); s.start(); }
 function openTransitions() {
-  const fx = S.fx;
+  const fx = new Proxy({}, { get: (_, k) => S.fx[k], set: (_, k, v) => ((S.fx[k] = v), true) });
   openSheet('trans', 'Transições', `
     <div class="sec">Aplicar em todos os cortes</div>
     <div class="chips">
@@ -871,21 +890,11 @@ function openTransitions() {
     <div class="row"><label>Som</label><span class="spacer"></span><input type="checkbox" class="tg" id="brn" ${fx.burnSound ? 'checked' : ''}></div>
     ${rangeRow('burnDb', 'Volume', -30, 0, 1, fx.burnDb, (v) => `${v} dB`)}
     <button class="chip" id="brn-test">${inlineIc('play', 12)} Ouvir som</button>
-    <div class="sec">Início do vídeo</div>
-    <div class="row"><label>Fade do preto</label><span class="spacer"></span><input type="checkbox" class="tg" id="fi" ${fx.fadeIn.on ? 'checked' : ''}></div>
-    ${rangeRow('fiDur', 'Duração', 0.1, 3, 0.1, fx.fadeIn.dur, sec)}
-    <div class="sec">Final do vídeo</div>
-    <div class="row"><label>Fade para preto</label><span class="spacer"></span><input type="checkbox" class="tg" id="fo" ${fx.fadeOut.on ? 'checked' : ''}></div>
-    ${rangeRow('foDur', 'Duração', 0.1, 5, 0.1, fx.fadeOut.dur, sec)}
-    <div class="row"><label>Áudio junto</label><span class="spacer note">o som acompanha os fades</span><input type="checkbox" class="tg" id="fa" ${fx.fadeAudio ? 'checked' : ''}></div>
-    <p class="note">Dica: toque no ícone entre dois clipes, na linha do tempo, para escolher a transição só daquele corte.</p>
+    <p class="note">O fade do começo e do final do vídeo fica no botão Fade. Dica: toque no ícone entre dois clipes, na linha do tempo, para escolher a transição só daquele corte.</p>
   `, (b) => {
     const tog = (id, fn) => $(id, b).addEventListener('change', (e) => { commit(); fn(e.target.checked); draw(); renderTimeline(); });
     tog('#clk', (v) => (fx.click = v));
     tog('#brn', (v) => (fx.burnSound = v));
-    tog('#fi', (v) => (fx.fadeIn.on = v));
-    tog('#fo', (v) => (fx.fadeOut.on = v));
-    tog('#fa', (v) => (fx.fadeAudio = v));
     b.querySelectorAll('[data-all]').forEach((el) => el.onclick = () => {
       const k = el.dataset.all; commit();
       S.clips.forEach((c, i) => (c.transition = i ? k : 'none')); renderTimeline(); draw();
@@ -901,8 +910,6 @@ function openTransitions() {
       clickDb: { set: (v) => (fx.clickDb = v), fmt: (v) => `${v} dB` },
       burnDur: { set: (v) => (fx.burnDur = v), fmt: sec },
       burnDb: { set: (v) => (fx.burnDb = v), fmt: (v) => `${v} dB` },
-      fiDur: { set: (v) => (fx.fadeIn.dur = v), fmt: sec },
-      foDur: { set: (v) => (fx.fadeOut.dur = v), fmt: sec, after: () => seekTo(Math.max(0, total() - fx.fadeOut.dur - 0.3)) },
     });
   });
 }
@@ -977,6 +984,138 @@ function openAudioSheet(id) {
     fi: { set: (v) => (a.fadeIn = v), fmt: sec, after: renderTimeline },
     fo: { set: (v) => (a.fadeOut = v), fmt: sec, after: renderTimeline },
   }));
+}
+
+
+// ---------- Zoom in / zoom out (efeito dentro do clipe) ----------
+const ease = (p) => (p < 0.5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2);
+function zoomAt(t, r) {
+  if (!r || !S.zooms.length) return 1;
+  const local = t - r.start; let val = 1;
+  for (const z of S.zooms.filter((x) => x.clipId === r.clip.id).sort((a, b) => a.off - b.off)) {
+    if (local < z.off) break;
+    const e = ease(clamp((local - z.off) / z.dur, 0, 1)), Z = z.amount;
+    val = z.type === 'in' ? 1 + (Z - 1) * e : Z - (Z - 1) * e;
+  }
+  return val;
+}
+function openZoomSheet(clipId, editId) {
+  const r = layout().find((x) => x.clip.id === clipId); if (!r) return;
+  const len = r.end - r.start;
+  const list = S.zooms.filter((z) => z.clipId === clipId).sort((a, b) => a.off - b.off);
+  const z = editId ? S.zooms.find((x) => x.id === editId) : null;
+  const def = prefs.zoomDef || {};
+  const d = z || { type: def.type || 'in', dur: def.dur ?? 0.6, amount: def.amount ?? 1.2 };
+  const maxDur = Math.max(0.3, Math.min(5, len)).toFixed(1);
+  openSheet('zoom', z ? `Zoom ${z.type === 'in' ? 'in' : 'out'} em ${z.off.toFixed(1)}s do clipe` : 'Zoom', `
+    <div class="chips">
+      <button class="chip ${d.type === 'in' ? 'on' : ''}" data-zt="in">${inlineIc('zoomIn')} Zoom in</button>
+      <button class="chip ${d.type === 'out' ? 'on' : ''}" data-zt="out">${inlineIc('zoomOut')} Zoom out</button>
+    </div>
+    ${rangeRow('zd', 'Duração', 0.2, maxDur, 0.1, Math.min(d.dur, maxDur), sec)}
+    ${rangeRow('za', 'Intensidade', 105, 160, 1, Math.round(d.amount * 100), pctf)}
+    ${z ? `<button class="btn" id="z-prev">${inlineIc('play', 12)} Ver o zoom</button>
+           <button class="btn" id="z-del" style="color:#ff6b6b">${inlineIc('trash')} Apagar este zoom</button>
+           <button class="btn" id="z-new">Adicionar outro zoom neste clipe</button>`
+        : `<button class="btn primary" id="z-start">Adicionar no início do clipe</button>
+           <button class="btn" id="z-here">Adicionar no cursor (${fmt(S.t)})</button>`}
+    ${list.length && !z ? `<div class="sec">Zooms deste clipe</div><div class="chips">${list.map((x) => `<button class="chip" data-ze="${x.id}">${x.type === 'in' ? 'In' : 'Out'} em ${x.off.toFixed(1)}s</button>`).join('')}</div>` : ''}
+    <p class="note">O zoom acontece dentro do clipe, não entre clipes. Zoom in aproxima e fica aproximado; zoom out começa aproximado e volta ao normal.</p>`,
+  (b) => {
+    const keepDef = () => { if (!z) { prefs.zoomDef = { type: d.type, dur: d.dur, amount: d.amount }; savePrefs(); } };
+    b.querySelectorAll('[data-zt]').forEach((el) => el.onclick = () => {
+      if (z) commit(); d.type = el.dataset.zt; keepDef();
+      b.querySelectorAll('[data-zt]').forEach((x) => x.classList.toggle('on', x === el)); renderTimeline(); draw();
+    });
+    bindRanges(b, {
+      zd: { set: (v) => { d.dur = v; keepDef(); }, fmt: sec, after: renderTimeline },
+      za: { set: (v) => { d.amount = v / 100; keepDef(); }, fmt: pctf },
+    });
+    const add = (off) => {
+      commit();
+      const nz = { id: uid(), clipId, off: clamp(off, 0, Math.max(0, len - 0.1)), dur: d.dur, type: d.type, amount: d.amount };
+      S.zooms.push(nz); renderTimeline(); seekTo(r.start + nz.off + Math.min(nz.dur, 0.3));
+      toast('Zoom adicionado'); openZoomSheet(clipId, nz.id);
+    };
+    $('#z-start', b)?.addEventListener('click', () => add(0));
+    $('#z-here', b)?.addEventListener('click', () => {
+      const rr = clipAt(S.t); if (!rr || rr.clip.id !== clipId) return toast('O cursor não está sobre este clipe');
+      add(S.t - r.start);
+    });
+    $('#z-del', b)?.addEventListener('click', () => { commit(); S.zooms = S.zooms.filter((x) => x !== z); renderTimeline(); draw(); openZoomSheet(clipId); });
+    $('#z-new', b)?.addEventListener('click', () => openZoomSheet(clipId));
+    $('#z-prev', b)?.addEventListener('click', () => { seekTo(Math.max(0, r.start + z.off - 0.4)); play(); });
+    b.querySelectorAll('[data-ze]').forEach((el) => el.onclick = () => openZoomSheet(clipId, el.dataset.ze));
+  });
+}
+function zoomFromToolbar() {
+  if (!S.clips.length) return toast('Adicione um vídeo primeiro');
+  openZoomSheet(clipAt(S.t).clip.id);
+}
+
+// ---------- Fade do vídeo (início e final) ----------
+function openFades() {
+  if (!S.clips.length) return toast('Adicione um vídeo primeiro');
+  const f = () => S.fx;
+  openSheet('fade', 'Fade do vídeo', `
+    <div class="sec">Início do vídeo</div>
+    <div class="row"><label>Fade in</label><span class="spacer note">surge do preto</span><input type="checkbox" class="tg" id="fi" ${f().fadeIn.on ? 'checked' : ''}></div>
+    ${rangeRow('fiDur', 'Duração', 0.1, 5, 0.1, f().fadeIn.dur, sec)}
+    <button class="chip" id="fi-prev">${inlineIc('play', 12)} Ver o início</button>
+    <div class="sec">Final do vídeo</div>
+    <div class="row"><label>Fade out</label><span class="spacer note">some para o preto</span><input type="checkbox" class="tg" id="fo" ${f().fadeOut.on ? 'checked' : ''}></div>
+    ${rangeRow('foDur', 'Duração', 0.1, 5, 0.1, f().fadeOut.dur, sec)}
+    <button class="chip" id="fo-prev">${inlineIc('play', 12)} Ver o final</button>
+    <div class="sec">Som</div>
+    <div class="row"><label>Áudio junto</label><span class="spacer note">o som também faz o fade</span><input type="checkbox" class="tg" id="fa" ${f().fadeAudio ? 'checked' : ''}></div>
+  `, (b) => {
+    const showIn = () => seekTo(Math.min(total(), f().fadeIn.dur * 0.4));
+    const showOut = () => seekTo(Math.max(0, total() - f().fadeOut.dur * 0.6));
+    const tog = (id, fn, after) => $(id, b).addEventListener('change', (e) => { commit(); fn(e.target.checked); draw(); if (e.target.checked && after) after(); });
+    tog('#fi', (v) => (f().fadeIn.on = v), showIn);
+    tog('#fo', (v) => (f().fadeOut.on = v), showOut);
+    tog('#fa', (v) => (f().fadeAudio = v));
+    $('#fi-prev', b).onclick = () => { seekTo(0); play(); };
+    $('#fo-prev', b).onclick = () => { seekTo(Math.max(0, total() - f().fadeOut.dur - 1)); play(); };
+    bindRanges(b, {
+      fiDur: { set: (v) => (f().fadeIn.dur = v), fmt: sec, after: () => f().fadeIn.on && showIn() },
+      foDur: { set: (v) => (f().fadeOut.dur = v), fmt: sec, after: () => f().fadeOut.on && showOut() },
+    });
+  });
+}
+
+// ---------- Biblioteca de SFX ----------
+let sfxIndex = null, sfxPrev = null;
+const sfxCache = new Map();
+async function sfxBuffer(s) {
+  if (!sfxCache.has(s.file)) {
+    const ab = await (await fetch('sfx/lib/' + encodeURIComponent(s.file))).arrayBuffer();
+    sfxCache.set(s.file, await new Promise((res, rej) => ac().decodeAudioData(ab, res, rej)));
+  }
+  return sfxCache.get(s.file);
+}
+function stopSfxPrev() { try { sfxPrev?.stop(); } catch {} sfxPrev = null; }
+async function openSfx() {
+  if (!sfxIndex) { try { sfxIndex = await (await fetch('sfx/lib/index.json')).json(); } catch { return toast('Não consegui carregar a lista de SFX'); } }
+  openSheet('sfx', 'SFX', `<p class="note">▶ ouve · ＋ coloca na linha do tempo, no cursor (${fmt(S.t)}).</p>` +
+    sfxIndex.map((s, i) => `<div class="sfx-row">
+      <button class="mini" data-play="${i}" aria-label="Ouvir">${ic('play')}</button>
+      <span class="sfx-name">${esc(s.name)}</span><span class="sfx-dur">${s.dur.toFixed(1)}s</span>
+      <button class="mini add" data-add="${i}" aria-label="Adicionar">${ic('plus')}</button></div>`).join(''),
+  (b) => {
+    b.querySelectorAll('[data-play]').forEach((el) => el.onclick = async () => {
+      stopSfxPrev(); const c = ac(); await c.resume();
+      try { const src = c.createBufferSource(); src.buffer = await sfxBuffer(sfxIndex[+el.dataset.play]); src.connect(c.destination); src.start(); sfxPrev = src; }
+      catch { toast('Não consegui tocar este som'); }
+    });
+    b.querySelectorAll('[data-add]').forEach((el) => el.onclick = async () => {
+      const s = sfxIndex[+el.dataset.add]; stopSfxPrev();
+      try {
+        const blob = await (await fetch('sfx/lib/' + encodeURIComponent(s.file))).blob();
+        await addAudioFromFile(new File([blob], s.file, { type: 'audio/mpeg' }), s.name);
+      } catch { toast('Não consegui adicionar este som'); }
+    });
+  });
 }
 
 // ---------- Legendas ----------
@@ -1071,60 +1210,40 @@ function ensureCaptionVisible() {
   const sp = capSpans()[0]; if (sp) seekTo(sp.start + 0.01);
 }
 function capGenHTML() {
-  const eng = prefs.engine || 'local', model = prefs.model || 'Xenova/whisper-base';
-  const hasWords = Object.keys(S.words).length > 0;
-  return `
-    <div class="sec">Transcrição</div>
-    <div class="chips">
-      <button class="chip ${eng === 'local' ? 'on' : ''}" data-eng="local">No aparelho (grátis)</button>
-      <button class="chip ${eng === 'groq' ? 'on' : ''}" data-eng="groq">Groq (grátis, mais precisa)</button>
-    </div>
-    <div id="eng-local" style="display:${eng === 'local' ? 'block' : 'none'}">
-      <div class="row"><label>Qualidade</label><select id="model">
-        <option value="Xenova/whisper-tiny" ${model.endsWith('tiny') ? 'selected' : ''}>Rápida (≈40 MB)</option>
-        <option value="Xenova/whisper-base" ${model.endsWith('base') ? 'selected' : ''}>Equilibrada (≈80 MB)</option>
-        <option value="Xenova/whisper-small" ${model.endsWith('small') ? 'selected' : ''}>Precisa (≈250 MB, pesada)</option>
-      </select></div>
-      <p class="note">Roda 100% no iPhone, sem internet depois do primeiro uso. Na primeira vez o modelo é baixado e fica salvo.</p>
-    </div>
-    <div id="eng-groq" style="display:${eng === 'groq' ? 'block' : 'none'}">
-      <div class="row"><label>Chave da API</label><input type="password" id="groq-key" placeholder="gsk_…" value="${esc(prefs.groqKey || '')}" autocomplete="off"></div>
-      <p class="note">Crie uma chave gratuita em console.groq.com (menu API Keys). Ela fica salva só neste aparelho. O áudio é enviado para a Groq para transcrever.</p>
-    </div>
-    <div class="sec">Blocos</div>
-    ${rangeRow('mw', 'Palavras/bloco', 1, 10, 1, S.maxWords, (v) => v)}
+  if (prefs.groqKey) return `
+    <p class="note">Usa o modelo mais preciso (Whisper large v3), com 4 palavras por bloco. É só tocar no botão.</p>
     <button class="btn primary" id="gen">Gerar legendas</button>
-    <div class="progress"><div id="gen-bar"></div></div>
-    <p class="note" id="gen-st"></p>
-    ${hasWords ? '<button class="btn" id="rebuild">Redividir blocos (perde as edições de texto)</button>' : ''}`;
+    <div class="progress"><div id="gen-bar"></div></div><p class="note" id="gen-st"></p>
+    <button class="btn" id="key-change" style="font-weight:400;font-size:13px;background:none;color:var(--muted)">Trocar chave da Groq</button>`;
+  return `
+    <div class="sec">Configuração (só na primeira vez)</div>
+    <p class="note">Cole aqui sua chave da Groq (começa com <b>gsk_</b>). Ela fica salva só neste aparelho.</p>
+    <div class="row"><input type="password" id="groq-key" placeholder="gsk_…" autocomplete="off" autocapitalize="off" spellcheck="false"></div>
+    <button class="btn primary" id="key-save">Salvar e gerar legendas</button>
+    <div class="progress"><div id="gen-bar"></div></div><p class="note" id="gen-st"></p>`;
 }
 function bindCapGen(b) {
-  b.querySelectorAll('[data-eng]').forEach((el) => el.onclick = () => {
-    prefs.engine = el.dataset.eng; savePrefs();
-    b.querySelectorAll('[data-eng]').forEach((x) => x.classList.toggle('on', x === el));
-    $('#eng-local', b).style.display = prefs.engine === 'local' ? 'block' : 'none';
-    $('#eng-groq', b).style.display = prefs.engine === 'groq' ? 'block' : 'none';
-  });
-  $('#model', b).onchange = (e) => { prefs.model = e.target.value; savePrefs(); };
-  $('#groq-key', b).onchange = (e) => { prefs.groqKey = e.target.value.trim(); savePrefs(); };
-  bindRanges(b, { mw: { set: (v) => { S.maxWords = v; savePrefs(); }, fmt: (v) => v } });
   const st = (msg, pct) => { const e = $('#gen-st'); if (e) e.textContent = msg; if (pct != null) { const bar = $('#gen-bar'); if (bar) bar.style.width = pct + '%'; } };
-  $('#gen', b).onclick = async (ev) => {
-    const btn = ev.currentTarget; btn.disabled = true;
+  const run = async (btn) => {
+    btn.disabled = true;
     try { await transcribeAll(st); st('Pronto! Confira e edite o texto na aba Texto.', 100); setTimeout(() => sheetKind === 'captions' && openCaptions('texto'), 900); }
-    catch (e) { console.error(e); st('Erro: ' + e.message, 0); }
-    finally { btn.disabled = false; }
+    catch (e) {
+      console.error(e);
+      if (/401|invalid_api_key/i.test(e.message)) { prefs.groqKey = ''; savePrefs(); openCaptions('gerar'); st('Essa chave não foi aceita pela Groq. Confira e cole de novo.', 0); return; }
+      st('Erro: ' + e.message, 0);
+    } finally { btn.disabled = false; }
   };
-  const rb = $('#rebuild', b);
-  if (rb) rb.onclick = () => {
-    commit();
-    const ids = Object.keys(S.words);
-    S.captions = S.captions.filter((c) => !ids.includes(c.mediaId));
-    for (const id of ids) S.captions.push(...buildCaptions(id, S.words[id], S.maxWords));
-    refresh(); toast('Blocos refeitos'); openCaptions('texto');
+  const gen = $('#gen', b); if (gen) gen.onclick = (e) => run(e.currentTarget);
+  const save = $('#key-save', b);
+  if (save) save.onclick = (e) => {
+    const k = $('#groq-key', b).value.trim();
+    if (!/^gsk_\w{20,}$/.test(k)) return st('A chave deve começar com gsk_ (copie ela inteira).', 0);
+    prefs.groqKey = k; savePrefs(); run(e.currentTarget);
   };
+  const ch = $('#key-change', b); if (ch) ch.onclick = () => { prefs.groqKey = ''; savePrefs(); openCaptions('gerar'); };
 }
-function buildCaptions(mediaId, words, maxW) {
+const MAX_WORDS = 4;
+function buildCaptions(mediaId, words, maxW = MAX_WORDS) {
   const blocks = []; let cur = [];
   const flush = () => { if (cur.length) blocks.push(cur); cur = []; };
   for (const w of words) {
@@ -1147,11 +1266,11 @@ async function to16k(buf) {
   const r = await oc.startRendering();
   return new Float32Array(r.getChannelData(0));
 }
+const NOISE_TAG = /[\(\[][^\)\]]*[\)\]]/g; // marcações que o Whisper inventa: (música), [Aplausos]…
 function chunksToWords(chunks, maxT) {
   const out = [];
   for (const ch of chunks || []) {
-    // ignora marcações que o Whisper inventa em trechos sem fala: (música), [Aplausos]…
-    const text = (ch.text || '').replace(/[\(\[][^\)\]]*[\)\]]/g, '').trim(); if (!text) continue;
+    const text = (ch.text || '').replace(NOISE_TAG, '').trim(); if (!text) continue;
     let [s, e] = ch.timestamp || [0, 0];
     if (s == null) s = out.length ? out[out.length - 1].end : 0;
     if (e == null) e = Math.min(maxT || s + 2, s + 2);
@@ -1160,21 +1279,6 @@ function chunksToWords(chunks, maxT) {
     for (const p of parts) { const d = (e - s) * (p.length / totalLen); out.push({ text: p, start: t, end: t + d }); t += d; }
   }
   return out;
-}
-let worker = null;
-function localTranscribe(pcm, model, st) {
-  if (!worker) worker = new Worker('whisper-worker.js', { type: 'module' });
-  return new Promise((res, rej) => {
-    worker.onmessage = (e) => {
-      const d = e.data;
-      if (d.type === 'progress') st(`Baixando modelo… ${Math.round(d.pct)}% (só na primeira vez)`, d.pct * 0.5);
-      else if (d.type === 'status') st(d.msg, d.pct);
-      else if (d.type === 'done') res(chunksToWords(d.chunks, pcm.length / 16000));
-      else if (d.type === 'error') rej(new Error(d.msg));
-    };
-    worker.onerror = (e) => rej(new Error(e.message || 'falha ao carregar o transcritor'));
-    worker.postMessage({ audio: pcm, model }, [pcm.buffer]);
-  });
 }
 function encodeWav(pcm, sr) {
   const buf = new ArrayBuffer(44 + pcm.length * 2), v = new DataView(buf);
@@ -1186,31 +1290,41 @@ function encodeWav(pcm, sr) {
   return buf;
 }
 async function groqTranscribe(pcm, key) {
-  if (!key) throw new Error('cole sua chave da Groq primeiro');
+  if (!key) throw new Error('falta a chave da Groq');
   const fd = new FormData();
   fd.append('file', new Blob([encodeWav(pcm, 16000)], { type: 'audio/wav' }), 'audio.wav');
-  fd.append('model', 'whisper-large-v3-turbo'); fd.append('language', 'pt'); fd.append('response_format', 'verbose_json');
+  fd.append('model', 'whisper-large-v3'); fd.append('language', 'pt'); fd.append('response_format', 'verbose_json');
   fd.append('timestamp_granularities[]', 'word'); fd.append('timestamp_granularities[]', 'segment');
-  const r = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', { method: 'POST', headers: { Authorization: 'Bearer ' + key }, body: fd });
+  let r;
+  try { r = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', { method: 'POST', headers: { Authorization: 'Bearer ' + key }, body: fd }); }
+  catch { throw new Error('sem conexão com a internet'); }
+  if (r.status === 429) throw new Error('limite gratuito da Groq atingido; tente de novo em alguns minutos');
   if (!r.ok) throw new Error('Groq respondeu ' + r.status + ': ' + (await r.text()).slice(0, 160));
   const j = await r.json();
-  if (j.words?.length) return j.words.map((w) => ({ text: String(w.word).trim(), start: w.start, end: w.end }));
-  return chunksToWords((j.segments || []).map((s) => ({ text: s.text, timestamp: [s.start, s.end] })));
+  const words = (j.words || []).map((w) => ({ text: String(w.word).replace(NOISE_TAG, '').trim(), start: w.start, end: w.end })).filter((w) => w.text);
+  if (!words.length) return chunksToWords((j.segments || []).map((s) => ({ text: s.text, timestamp: [s.start, s.end] })));
+  // os tempos vêm por palavra, mas a pontuação e as maiúsculas vêm no texto de cada frase: junta os dois
+  const used = new Set();
+  for (const sg of j.segments || []) {
+    const toks = String(sg.text).replace(NOISE_TAG, '').trim().split(/\s+/).filter(Boolean);
+    const inSeg = words.filter((w) => !used.has(w) && w.start >= sg.start - 0.05 && w.start < sg.end + 0.05);
+    if (toks.length && toks.length === inSeg.length) inSeg.forEach((w, i) => { w.text = toks[i]; used.add(w); });
+  }
+  return words;
 }
 async function transcribeAll(st) {
   const ids = [...new Set(S.clips.map((c) => c.mediaId))].filter((id) => media.get(id)?.bufferId);
   if (!ids.length) throw new Error('os vídeos não têm áudio');
-  const engine = prefs.engine || 'local', model = prefs.model || 'Xenova/whisper-base';
   for (let i = 0; i < ids.length; i++) {
     const id = ids[i], tag = ids.length > 1 ? ` (vídeo ${i + 1}/${ids.length})` : '';
-    st('Preparando áudio' + tag + '…', 2);
+    st('Preparando áudio' + tag + '…', 5 + (90 * i) / ids.length);
     const pcm = await to16k(buffers.get(media.get(id).bufferId).buffer);
-    st((engine === 'groq' ? 'Enviando para a Groq' : 'Carregando transcritor') + tag + '…', 5);
-    S.words[id] = engine === 'groq' ? await groqTranscribe(pcm, prefs.groqKey) : await localTranscribe(pcm, model, (m, p) => st(m + tag, p));
+    st('Transcrevendo' + tag + '…', 15 + (90 * i) / ids.length);
+    S.words[id] = await groqTranscribe(pcm, prefs.groqKey);
   }
   commit();
   S.captions = S.captions.filter((c) => !ids.includes(c.mediaId));
-  for (const id of ids) S.captions.push(...buildCaptions(id, S.words[id], S.maxWords));
+  for (const id of ids) S.captions.push(...buildCaptions(id, S.words[id]));
   if (!S.captions.length) throw new Error('não encontrei fala no áudio');
   refresh(); saveSoon();
 }
@@ -1342,7 +1456,7 @@ async function restoreProject() {
       const file = await dbGet(b.fileKey); if (!file) continue;
       if (buffers.has(b.id)) continue; try { const buf = await extractAudio(file); buffers.set(b.id, { buffer: buf, peaks: computePeaks(buf), name: b.name, fileKey: b.fileKey }); } catch {}
     }
-    Object.assign(S, JSON.parse(p.snap)); S.clips.forEach(normClip);
+    Object.assign(S, { zooms: [] }, JSON.parse(p.snap)); S.clips.forEach(normClip);
     S.clips = S.clips.filter((c) => media.has(c.mediaId));
     S.audios = S.audios.filter((a) => buffers.has(a.bufferId));
     S.words = p.words || {}; S.aspect = p.aspect; S.t = clamp(p.t || 0, 0, total());
@@ -1380,8 +1494,6 @@ $('#btn-redo').onclick = redo;
 $('#btn-play').onclick = () => (E.playing ? (E.exporting ? null : pause()) : play());
 $('#btn-export').onclick = openExport;
 $('#btn-add-first').onclick = () => $('#file-video').click();
-$('#zoom-in').onclick = () => zoom(1.5);
-$('#zoom-out').onclick = () => zoom(1 / 1.5);
 $('#sheet-close').onclick = closeSheet;
 $('#file-video').onchange = (e) => { const f = [...e.target.files]; e.target.value = ''; if (f.length) importVideos(f); };
 $('#file-audio').onchange = (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) addAudioFromFile(f); };

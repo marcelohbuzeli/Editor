@@ -44,7 +44,7 @@ svg { display: block; }
 #time { font-variant-numeric: tabular-nums; font-size: 12px; color: var(--muted); width: 130px; }
 .play { width: 44px; height: 44px; border-radius: 50%; background: var(--text); color: #000; display: grid; place-items: center; }
 .play svg { width: 20px; height: 20px; }
-.zoom { display: flex; gap: 6px; width: 130px; justify-content: flex-end; }
+.tspacer { width: 130px; }
 
 #timeline { position: relative; background: var(--panel); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
 #tl-scroll { overflow-x: auto; overflow-y: hidden; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
@@ -87,7 +87,7 @@ svg { display: block; }
 .tool:active { background: var(--panel2); }
 
 body.sheet-open #app { height: calc(100dvh - var(--sheet-h, 0px) + 6px); }
-body.sheet-open #timeline, body.sheet-open #toolbar, body.sheet-open .zoom { display: none; }
+body.sheet-open #timeline, body.sheet-open #toolbar { display: none; }
 body.sheet-open #transport { padding: 2px 12px 8px; }
 #sheet { position: fixed; left: 0; right: 0; bottom: 0; max-height: 56dvh; background: var(--panel); border-radius: 18px 18px 0 0; transform: translateY(105%); transition: transform .25s ease; display: flex; flex-direction: column; z-index: 20; box-shadow: 0 -10px 30px rgba(0,0,0,.55); padding-bottom: env(safe-area-inset-bottom); }
 #sheet.open { transform: none; }
@@ -138,3 +138,10 @@ select, input[type=text], input[type=password] { background: var(--panel2); colo
 #vpool { position: fixed; left: 0; top: 0; width: 2px; height: 2px; overflow: hidden; opacity: 0.01; pointer-events: none; }
 #vpool video { width: 2px; height: 2px; }
 video.result { width: 100%; max-height: 30dvh; border-radius: 10px; background: #000; margin-top: 8px; }
+
+.zm { position: absolute; top: 4px; width: 20px; height: 20px; border-radius: 6px; background: #5ec8f2; color: #00202c; z-index: 3; display: grid; place-items: center; box-shadow: 0 1px 4px rgba(0,0,0,.5); }
+.zm svg { width: 13px; height: 13px; }
+.sfx-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.sfx-name { flex: 1; font-size: 14px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sfx-dur { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.mini.add { background: var(--accent); color: #fff; }
