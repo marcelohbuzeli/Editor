@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Corte">
+<meta name="theme-color" content="#0b0b0d">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700;800&family=Poppins:wght@400;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<title>Corte</title>
+</head>
+<body>
+<div id="app">
+  <header id="top">
+    <button id="btn-new" class="icon" aria-label="Novo projeto"></button>
+    <button id="btn-undo" class="icon" aria-label="Desfazer"></button>
+    <button id="btn-redo" class="icon" aria-label="Refazer"></button>
+    <div class="brand">Corte</div>
+    <button id="btn-export" class="primary">Exportar</button>
+  </header>
+
+  <section id="stage">
+    <canvas id="preview" width="540" height="960"></canvas>
+    <div id="empty">
+      <button id="btn-add-first" class="big">＋ Adicionar vídeo</button>
+      <p>Escolha um vídeo da galeria para começar</p>
+    </div>
+  </section>
+
+  <div id="transport">
+    <span id="time">00:00.0 / 00:00.0</span>
+    <button id="btn-play" class="play" aria-label="Reproduzir"></button>
+    <div class="zoom">
+      <button id="zoom-out" class="icon" aria-label="Diminuir zoom">−</button>
+      <button id="zoom-in" class="icon" aria-label="Aumentar zoom">+</button>
+    </div>
+  </div>
+
+  <section id="timeline">
+    <div id="tl-scroll">
+      <div id="tl-inner">
+        <div id="ruler"></div>
+        <div id="track-video" class="track"></div>
+        <div id="track-caps" class="track small"></div>
+        <div id="track-audio" class="track audio"></div>
+      </div>
+    </div>
+    <div id="playhead"></div>
+  </section>
+
+  <nav id="toolbar"></nav>
+</div>
+
+<div id="sheet" aria-hidden="true">
+  <div class="grab"></div>
+  <div class="sheet-head"><h3 id="sheet-title"></h3><button id="sheet-close" class="icon" aria-label="Fechar"></button></div>
+  <div id="sheet-body"></div>
+</div>
+<div id="toast"></div>
+<div id="vpool"></div>
+
+<input type="file" id="file-video" accept="video/*" multiple hidden>
+<input type="file" id="file-audio" accept="video/*,audio/*" hidden>
+<script type="module" src="app.js"></script>
+</body>
+</html>
