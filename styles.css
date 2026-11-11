@@ -8,7 +8,8 @@
   --accent: #ff3b6b;
   --accent2: #ffd84d;
   --clip: #2b3a55;
-  --audio: #1d4a38;
+  --audio: #6b5a14;
+  --orig: #57491a;
   --cap: #6a4a1c;
   color-scheme: dark;
 }
@@ -61,7 +62,8 @@ svg { display: block; }
 .dur { position: absolute; right: 4px; bottom: 3px; font-size: 10px; background: rgba(0,0,0,.6); padding: 1px 4px; border-radius: 4px; }
 .tr { position: absolute; top: 50%; width: 24px; height: 24px; margin: -12px 0 0 -13px; border-radius: 7px; background: #fff; color: #000; z-index: 2; display: grid; place-items: center; box-shadow: 0 1px 5px rgba(0,0,0,.6); }
 .tr svg { width: 14px; height: 14px; }
-.tr.on { background: var(--accent2); }
+.tr.flash { background: var(--accent2); }
+.tr.burn { background: #ff8a2b; }
 
 .capb { position: absolute; top: 0; height: 100%; border-radius: 5px; background: var(--cap); font-size: 10px; line-height: 19px; padding: 0 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border: 1.5px solid transparent; }
 .capb.sel { border-color: #fff; }
@@ -70,6 +72,10 @@ svg { display: block; }
 .aud canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
 .aud .nm { position: absolute; left: 5px; top: 1px; font-size: 9px; opacity: .85; white-space: nowrap; }
 .aud.sel { border-color: #fff; }
+.aud.linked { top: 0; background: var(--orig); }
+.aud.linked.soft { border-color: rgba(255,255,255,.45); }
+.aud.none { background: #2a2a30; color: var(--muted); }
+#track-audio:empty { height: 0 !important; margin: 0; }
 
 #playhead { position: absolute; top: 0; bottom: 0; left: 50%; width: 2px; margin-left: -1px; background: #fff; pointer-events: none; box-shadow: 0 0 6px rgba(0,0,0,.7); }
 

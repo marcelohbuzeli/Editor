@@ -1,6 +1,6 @@
 // Cache do app para abrir rápido e funcionar sem internet
-const CACHE = 'corte-v1';
-const ASSETS = ['./', 'index.html', 'styles.css', 'app.js', 'whisper-worker.js', 'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-180.png', 'icons/icon-512.png'];
+const CACHE = 'corte-v2';
+const ASSETS = ['./', 'index.html', 'styles.css', 'app.js', 'whisper-worker.js', 'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-180.png', 'icons/icon-512.png', 'sfx/filmburn.mp3', 'vendor/mp4box.all.min.js'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)).catch(() => {}));
