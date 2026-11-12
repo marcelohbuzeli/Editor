@@ -2160,7 +2160,18 @@ document.addEventListener('visibilitychange', () => { if (document.hidden && E.p
 document.fonts.ready.then(draw);
 ensureFonts().then(draw);
 try { navigator.storage?.persist?.(); } catch {}
-if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => {});
+// versão do app: aparece pequena ao lado do nome, para conferir se atualizou
+const APP_VERSION = 8;
+{ const b = document.querySelector('.brand'); if (b) b.innerHTML = `Corte <small>v${APP_VERSION}</small>`; }
+if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+  // sempre procura a versão nova (sem usar cache) e recarrega sozinho quando ela chega
+  const hadCtrl = !!navigator.serviceWorker.controller; let reloaded = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => { if (hadCtrl && !reloaded && !E.exporting) { reloaded = true; location.reload(); } });
+  navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then((reg) => {
+    reg.update().catch(() => {});
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') reg.update().catch(() => {}); });
+  }).catch(() => {});
+}
 
 updUndo(); refresh(); restoreProject();
 
