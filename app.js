@@ -89,7 +89,7 @@ const buffers = new Map();  // id -> { buffer, peaks, name, fileKey }
 
 function loadPrefs() { try { return JSON.parse(localStorage.getItem('corte-prefs') || '{}'); } catch { return {}; } }
 function savePrefs() {
-  try { localStorage.setItem('corte-prefs', JSON.stringify({ v: 3, cap: S.cap, fx: S.fx, groqKey: prefs.groqKey, res: prefs.res, zoomDef: prefs.zoomDef, fadeDef: prefs.fadeDef, sfxTrim: prefs.sfxTrim })); } catch {}
+  try { localStorage.setItem('corte-prefs', JSON.stringify({ v: 3, cap: S.cap, fx: S.fx, groqKey: prefs.groqKey, res: prefs.res, zoomDef: prefs.zoomDef, fadeDef: prefs.fadeDef, sfxTrim: prefs.sfxTrim, expCompat: !!prefs.expCompat })); } catch {}
 }
 
 // ---------- Histórico (desfazer/refazer) ----------
@@ -619,7 +619,8 @@ function renderTimeline() {
     el.style.left = (h + a.start * pps) + 'px'; el.style.width = w + 'px'; el.style.top = (lanes.map.get(a.id) * 34) + 'px';
     const cv = document.createElement('canvas'); el.appendChild(cv);
     const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = '♪ ' + (a.name || 'Áudio'); el.appendChild(nm);
-    el.onclick = (e) => { e.stopPropagation(); select('audio', a.id); };
+    el.onclick = (e) => { e.stopPropagation(); if (el._dragged) { el._dragged = false; return; } select('audio', a.id); };
+    if (S.sel?.type === 'audio' && S.sel.id === a.id) { el.insertAdjacentHTML('beforeend', '<i class="lh l"></i><i class="lh r"></i>'); bindLayerDrag(el, a, h, { free: false, maxOut: buffers.get(a.bufferId)?.buffer.duration ?? Infinity }); }
     ta.appendChild(el);
     drawWave(cv, a.bufferId, a.in, a.out, a.volume ?? 1, a.fadeIn, a.fadeOut, w);
   }
@@ -885,7 +886,8 @@ function closeSheet() {
   document.body.classList.remove('sheet-open');
   renderTimeline(); savePrefs();
 }
-function rangeRow(key, label, min, max, step, val, fmtv, def) {
+const RANGE_DEF = { flashDur: 0.3, clickDb: -10, burnDur: 1, burnDb: -12, ls: 100, lx: 50, ly: 50, lv: 0, cv: 100, cfi: 0, cfo: 0, tv: 100, tfi: 0, tfo: 0, ov: 100, v: 100, fi: 0, fo: 0, size: 60, y: 75, shadow: 60, blur: 12 };
+function rangeRow(key, label, min, max, step, val, fmtv, def = RANGE_DEF[key]) {
   return `<div class="row"><label>${label}</label><input type="range" data-k="${key}" min="${min}" max="${max}" step="${step}" value="${val}"${def != null ? ` data-def="${def}"` : ''}><span class="val" data-v="${key}">${fmtv(val)}</span></div>`;
 }
 function bindRanges(root, handlers) {
@@ -904,8 +906,8 @@ function bindRanges(root, handlers) {
     if (el.dataset.def != null) {
       let lastUp = 0;
       const reset = () => {
-        const d = parseFloat(el.dataset.def); if (parseFloat(el.value) === d) return;
-        begin(); el.value = d; h.set(d);
+        const old = parseFloat(el.value); el.value = el.dataset.def; const d = parseFloat(el.value); if (old === d) return;
+        begin(); h.set(d);
         const out = root.querySelector(`[data-v="${el.dataset.k}"]`); if (out) out.textContent = h.fmt(d);
         if (!E.playing) draw();
         if (pend) { pushHist(pend); pend = null; } if (h.after) h.after();
@@ -1329,7 +1331,7 @@ function openLayerSheet(id) {
   const L = S.layers.find((x) => x.id === id); if (!L) return;
   const isImg = L.kind === 'image';
   openSheet('layer', isImg ? 'Camada de imagem' : 'Camada de vídeo', `
-    ${rangeRow('ls', 'Tamanho', 5, 150, 1, Math.round(L.scale * 100), pctf)}
+    ${rangeRow('ls', 'Tamanho', 5, 150, 1, Math.round(L.scale * 100), pctf, isImg ? 50 : 100)}
     ${rangeRow('lx', 'Horizontal', 0, 100, 1, Math.round(L.x * 100), pctf)}
     ${rangeRow('ly', 'Vertical', 0, 100, 1, Math.round(L.y * 100), pctf)}
     ${isImg ? rangeRow('ld', 'Duração', 0.5, 30, 0.1, L.out - L.in, sec) : rangeRow('lv', 'Volume', 0, 200, 1, Math.round((L.volume || 0) * 100), pctf)}
@@ -1350,12 +1352,12 @@ function openLayerSheet(id) {
   });
 }
 // camada selecionada: arrastar o meio move; arrastar as bordas muda o começo/fim
-function bindLayerDrag(el, L, h) {
+function bindLayerDrag(el, L, h, opt = { free: L.kind !== 'video', maxOut: L.kind === 'video' ? (media.get(L.srcId)?.duration ?? Infinity) : Infinity }) {
   el.addEventListener('pointerdown', (e) => {
     if (E.playing) return;
     const mode = e.target.classList.contains('l') ? 'l' : e.target.classList.contains('r') ? 'r' : 'm';
     const x0 = e.clientX, o = { start: L.start, in: L.in, out: L.out }, before = snap(), pps = S.pps, T = total();
-    const maxOut = L.kind === 'video' ? (media.get(L.srcId)?.duration ?? Infinity) : Infinity;
+    const maxOut = opt.maxOut;
     const snapT = (t) => { for (const p of [0, T, S.t]) if (Math.abs(t - p) * pps < 10) return p; return t; };
     let moved = false;
     el.setPointerCapture(e.pointerId); e.stopPropagation(); e.preventDefault();
@@ -1368,9 +1370,9 @@ function bindLayerDrag(el, L, h) {
         const ne = snapT(ns + o.out - o.in); if (ne !== ns + o.out - o.in && ne - (o.out - o.in) >= 0) ns = ne - (o.out - o.in);
         L.start = ns;
       } else if (mode === 'l') {
-        const end = o.start + o.out - o.in, minS = L.kind !== 'video' ? 0 : Math.max(0, o.start - o.in);
+        const end = o.start + o.out - o.in, minS = opt.free ? 0 : Math.max(0, o.start - o.in);
         const ns = clamp(snapT(o.start + dt), minS, end - 0.2);
-        if (L.kind !== 'video') { L.start = ns; L.in = 0; L.out = end - ns; } else { L.in = o.in + (ns - o.start); L.start = ns; }
+        if (opt.free) { L.start = ns; L.in = 0; L.out = end - ns; } else { L.in = o.in + (ns - o.start); L.start = ns; }
       } else {
         const ne = snapT(o.start + o.out - o.in + dt);
         L.out = clamp(o.in + (ne - o.start), o.in + 0.2, maxOut);
@@ -1839,11 +1841,44 @@ async function renderMixdown(T, sr) {
   scheduleAudio(0, off.destination, off);
   return off.startRendering();
 }
+function expLog(o) {
+  try { const cur = JSON.parse(localStorage.getItem('corte-exp') || '{}'); localStorage.setItem('corte-exp', JSON.stringify({ ...cur, ...o, at: Date.now() })); } catch {}
+}
+function lastExportProblem() {
+  try {
+    const x = JSON.parse(localStorage.getItem('corte-exp') || 'null'); if (!x || x.stage === 'pronto' || x.stage === 'erro-mostrado') return '';
+    return `A última exportação parou (etapa: ${x.stage}${x.pct != null ? ', ' + x.pct + '%' : ''}${x.mode ? ', modo ' + x.mode : ''}${x.mb != null ? ', ' + x.mb + ' MB' : ''}${x.err ? ', erro: ' + x.err : ''}; ${x.res || ''} ${x.codec || ''}, ${x.dur || '?'}s).`;
+  } catch { return ''; }
+}
+async function encodeMixdown(aenc, T) {
+  const mix = await renderMixdown(T, 48000);
+  const L0 = mix.getChannelData(0), R0 = mix.getChannelData(1), N = mix.length, CH = 4800;
+  for (let i = 0; i < N; i += CH) {
+    const n = Math.min(CH, N - i), data = new Float32Array(n * 2);
+    data.set(L0.subarray(i, i + n), 0); data.set(R0.subarray(i, i + n), n);
+    const ad = new AudioData({ format: 'f32-planar', sampleRate: 48000, numberOfFrames: n, numberOfChannels: 2, timestamp: Math.round(i / 48000 * 1e6), data });
+    aenc.encode(ad); ad.close();
+    if (aenc.encodeQueueSize > 50) await new Promise((r) => setTimeout(r, 5));
+  }
+}
 async function exportFrames(res, codecs) {
   const FPS = 30, T = total(), [W, H] = outSize(res), ex = E.exp;
   const Mux = await loadMuxer();
-  const target = new Mux.ArrayBufferTarget();
-  const muxer = new Mux.Muxer({ target, fastStart: 'in-memory', firstTimestampBehavior: 'offset',
+  // grava o arquivo em pedaços (sem juntar tudo na memória no final — o iPhone fecha a página se a memória estourar)
+  const parts = []; let written = 0;
+  const target = new Mux.StreamTarget({
+    chunked: true, chunkSize: 4 * 1024 * 1024,
+    onData: (data, pos) => {
+      if (pos === written) { parts.push({ pos, d: data.slice() }); written += data.byteLength; return; }
+      // reescrita de um trecho já gravado (cabeçalho do arquivo)
+      for (const p of parts) {
+        const a = Math.max(pos, p.pos), b = Math.min(pos + data.byteLength, p.pos + p.d.byteLength);
+        if (a < b) p.d.set(data.subarray(a - pos, b - pos), a - p.pos);
+      }
+      if (pos + data.byteLength > written) { const extra = data.subarray(written - pos); parts.push({ pos: written, d: extra.slice() }); written += extra.byteLength; }
+    },
+  });
+  const muxer = new Mux.Muxer({ target, fastStart: false, firstTimestampBehavior: 'offset',
     video: { codec: 'avc', width: W, height: H, frameRate: FPS }, audio: { codec: 'aac', numberOfChannels: 2, sampleRate: 48000 } });
   let encErr = null;
   const venc = new VideoEncoder({ output: (c, m) => muxer.addVideoChunk(c, m), error: (e) => (encErr = e) });
@@ -1852,15 +1887,10 @@ async function exportFrames(res, codecs) {
   aenc.configure(codecs.acfg);
 
   // 1) áudio: mixagem completa fora do tempo real
+  expLog({ stage: 'audio', res, codec: codecs.vcfg.codec, dur: Math.round(T) });
   $('#exp-st').textContent = 'Preparando o áudio…';
-  const mix = await renderMixdown(T, 48000);
-  const L0 = mix.getChannelData(0), R0 = mix.getChannelData(1), N = mix.length, CH = 4800;
-  for (let i = 0; i < N; i += CH) {
-    const n = Math.min(CH, N - i), data = new Float32Array(n * 2);
-    data.set(L0.subarray(i, i + n), 0); data.set(R0.subarray(i, i + n), n);
-    const ad = new AudioData({ format: 'f32-planar', sampleRate: 48000, numberOfFrames: n, numberOfChannels: 2, timestamp: Math.round(i / 48000 * 1e6), data });
-    aenc.encode(ad); ad.close();
-  }
+  await encodeMixdown(aenc, T);
+  await aenc.flush(); // libera a mixagem da memória antes do vídeo
 
   // 2) vídeo: cada quadro do clipe é desenhado e gravado com o tempo exato
   const cv = ex.cv, cx = ex.cx, L = layout(), total_frames = Math.max(1, Math.round(T * FPS));
@@ -1873,7 +1903,8 @@ async function exportFrames(res, codecs) {
   });
   E.rate = 1;
   const progress = () => {
-    const pct = Math.min(99, Math.round(100 * k / total_frames)); const bar = $('#exp-bar'); if (bar) bar.style.width = pct + '%';
+    const pct = Math.min(99, Math.round(100 * k / total_frames));
+    if (k % 30 === 0) expLog({ stage: 'video', pct, mode: seekMode ? 'quadro a quadro' : 'tocando', rate, mb: Math.round(written / 1048576) }); const bar = $('#exp-bar'); if (bar) bar.style.width = pct + '%';
     const lab = $('#exp-st'); if (lab) lab.textContent = `Exportando… ${pct}%`;
   };
   const emitUpTo = async (tl, r, v) => {
@@ -1896,60 +1927,49 @@ async function exportFrames(res, codecs) {
     const r = L[ci], c = r.clip;
     let v = pool.find((x) => x._clipId === c.id) || pool.find((x) => x !== activeV) || pool[0];
     if (v._clipId !== c.id) assign(v, c, c.in);
-    activeV = v; v.pause(); v.playbackRate = 1;
-    // posiciona no início do clipe e espera o quadro
-    if (Math.abs(v.currentTime - c.in) > 0.001 && v._pending == null) v.currentTime = c.in;
-    for (let w = 0; w < 200 && (v.seeking || v._pending != null || v.readyState < 2); w++) await new Promise((res2) => setTimeout(res2, 25));
-    await new Promise((res2) => setTimeout(res2, 30));
+    activeV = v; v.pause();
+    for (let w = 0; w < 200 && (v._pending != null || v.readyState < 1); w++) await new Promise((ok) => setTimeout(ok, 25));
     // pré-carrega o próximo clipe no outro player
     const nr = L[ci + 1], other = pool.find((x) => x !== v);
     if (nr) { other.pause(); assign(other, nr.clip, nr.clip.in); }
-    await emitUpTo(r.start, r, v);
-
-    // toca e captura cada quadro novo
-    if (!seekMode) await new Promise((done) => {
-      let finished = false, lastCb = performance.now(), busy = false;
-      const end = () => { if (finished) return; finished = true; clearInterval(watch); v.pause(); done(); };
-      const onFrame = async (now, meta) => {
-        if (finished) return;
-        lastCb = performance.now();
-        const mt = meta.mediaTime, tl = Math.min(r.end, r.start + Math.max(0, mt - c.in));
-        if (busy) { v.requestVideoFrameCallback(onFrame); return; }
-        busy = true;
-        const before = k;
-        if (mt >= c.in - 0.02) await emitUpTo(Math.min(tl, r.end - 1e-3), r, v);
-        // se pulou quadros da grade, diminui a velocidade da captura (fica mais lenta, mas sem travadas)
-        if (k - before > 1 && rate > 0.3) { if (++dupHits >= 2) { rate = Math.max(0.25, rate * 0.7); v.playbackRate = rate; E.rate = rate; dupHits = 0; } }
-        if (venc.encodeQueueSize > 3) { v.pause(); await drain(); if (!finished) v.play().catch(() => {}); }
-        busy = false;
-        if (encErr || ex.cancelled || mt >= c.out - 0.5 / FPS || k / FPS >= r.end - 1e-3) return end();
+    const srcT = (kk) => Math.min(c.out - 0.001, Math.max(c.in, c.in + (kk / FPS - r.start)));
+    const lastK = () => k >= total_frames || k / FPS >= r.end - 1e-3;
+    let gaps = 0;
+    while (!lastK() && !ex.cancelled && !encErr) {
+      // quadro exato por busca (seek)
+      E.stalled = true; v.pause();
+      await seekVid(v, srcT(k));
+      await emitUpTo(k / FPS, r, v); await drain();
+      if (seekMode || lastK()) continue;
+      // depois, tenta tocar e capturar cada quadro novo (mais rápido). Se perder algum quadro, volta para a busca.
+      const res = await new Promise((done) => {
+        let fin = false, lastCb = performance.now();
+        const end = (why) => { if (fin) return; fin = true; clearInterval(watch); v.pause(); done(why); };
+        const onFrame = (now, meta) => {
+          if (fin) return;
+          lastCb = performance.now();
+          const mt = meta.mediaTime;
+          if (srcT(k) < mt - 1 / FPS - 0.004) return end('gap'); // pulou quadro: refaz por busca
+          while (!lastK() && srcT(k) <= mt + 0.5 / FPS) emitUpTo(k / FPS, r, v);
+          if (encErr || ex.cancelled || lastK()) return end('done');
+          if (venc.encodeQueueSize > 3) { v.pause(); drain().then(() => { if (!fin) { v.play().catch(() => {}); v.requestVideoFrameCallback(onFrame); } }); return; }
+          v.requestVideoFrameCallback(onFrame);
+        };
         v.requestVideoFrameCallback(onFrame);
-      };
-      v.requestVideoFrameCallback(onFrame);
-      v.onended = end;
-      const watch = setInterval(() => {
-        if (finished) return;
-        if (ex.cancelled || encErr) return end();
-        if (v.currentTime >= c.out - 0.01) return end();
-        // o navegador não está entregando quadros (aba em segundo plano, economia de energia…): passa para o modo quadro a quadro
-        if (performance.now() - lastCb > 1200 && !busy) { seekMode = true; return end(); }
-      }, 300);
-      E.playing = true; E.stalled = false;
-      v.playbackRate = rate; v.play().catch(() => {});
-    });
-    v.onended = null;
-    if (encErr) throw encErr;
-    if (seekMode) {
-      v.pause(); E.stalled = true;
-      while (k < total_frames && k / FPS < r.end - 1e-3 && !ex.cancelled && !encErr) {
-        const t = k / FPS;
-        await seekVid(v, Math.min(c.out - 0.001, Math.max(c.in, c.in + (t - r.start))));
-        await emitUpTo(t, r, v); await drain();
-      }
-      E.stalled = false;
+        v.onended = () => end('done');
+        const watch = setInterval(() => {
+          if (ex.cancelled || encErr) return end('done');
+          if (performance.now() - lastCb > 1200 && venc.encodeQueueSize <= 3) end('stall');
+        }, 250);
+        E.stalled = false; v.playbackRate = rate; E.rate = rate; v.play().catch(() => end('stall'));
+      });
+      v.onended = null;
+      if (res === 'gap') { if (++gaps >= 6) seekMode = true; else { rate = Math.max(0.25, rate * 0.75); } }
+      else if (res === 'stall') seekMode = true;
+      await drain();
     }
-    await emitUpTo(r.end - 1e-3, r, v); // completa o fim do clipe se faltou algum quadro
-    await drain();
+    E.stalled = false;
+    if (encErr) throw encErr;
   }
   E.rate = 1; pool.forEach((v) => { v.pause(); v.playbackRate = 1; });
   for (const [, lv] of layerEls) { lv.pause(); lv.playbackRate = 1; }
@@ -1957,7 +1977,8 @@ async function exportFrames(res, codecs) {
   if (k < total_frames) { const lr = L[L.length - 1]; await emitUpTo(T, lr, activeV); }
   await venc.flush(); await aenc.flush(); muxer.finalize();
   venc.close(); aenc.close();
-  return new Blob([target.buffer], { type: 'video/mp4' });
+  expLog({ stage: 'pronto' });
+  return new Blob(parts.map((p) => p.d), { type: 'video/mp4' });
 }
 
 // ---------- Exportação ----------
@@ -1976,6 +1997,8 @@ function openExport() {
       <button class="chip ${res === '4k' ? 'on' : ''}" data-res="4k">4K</button>
     </div>
     <p class="note">Duração: ${fmt(total())}. Deixe o app aberto e a tela ligada até terminar. Se o aparelho estiver lento, a exportação demora um pouco mais, mas o vídeo sai liso.</p>
+    ${lastExportProblem() ? `<p class="note" style="color:#ffb35c">${lastExportProblem()} Se acontecer de novo, tente o modo compatível.</p>` : ''}
+    <label class="row"><label>Modo compatível</label><span style="flex:1;font-size:12px;color:var(--muted)">grava em tempo real (pode travar um pouco)</span><input type="checkbox" id="exp-compat" ${prefs.expCompat ? 'checked' : ''}></label>
     <button class="btn primary" id="exp-go">Exportar vídeo</button>
     <div id="exp-run" style="display:none">
       <div class="progress"><div id="exp-bar"></div></div><p class="note" id="exp-st"></p>
@@ -1984,7 +2007,8 @@ function openExport() {
     <div id="exp-done"></div>
   `, (b) => {
     b.querySelectorAll('[data-res]').forEach((el) => el.onclick = () => { prefs.res = el.dataset.res; savePrefs(); b.querySelectorAll('[data-res]').forEach((x) => x.classList.toggle('on', x === el)); });
-    $('#exp-go', b).onclick = () => startExport(prefs.res || '1080');
+    $('#exp-compat', b).onchange = (e) => { prefs.expCompat = e.target.checked; savePrefs(); };
+    $('#exp-go', b).onclick = () => { expLog({ stage: 'erro-mostrado' }); startExport(prefs.res || '1080'); };
     $('#exp-cancel', b).onclick = () => cancelExport();
     if (lastExport) showExportResult(lastExport);
   });
@@ -1999,13 +2023,13 @@ async function startExport(res) {
   const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
   const cx = cv.getContext('2d'); cx.fillStyle = '#000'; cx.fillRect(0, 0, W, H);
   ac(); await actx.resume();
-  const codecs = await pickCodecs(W, H, res === '4k' ? 35_000_000 : 12_000_000);
+  const codecs = prefs.expCompat ? null : await pickCodecs(W, H, res === '4k' ? 30_000_000 : 10_000_000);
   if (codecs) {
     const ex = { cv, cx, W, H, mime: 'video/mp4', res, cancelled: false, frames: true };
     E.exporting = true; E.exp = ex; E.playing = true; E.stalled = false; updPlay();
     try { E.wake = await navigator.wakeLock?.request('screen'); } catch {}
     let blob = null, err = null;
-    try { blob = await exportFrames(res, codecs); } catch (e) { err = e; console.error('exportação', e); }
+    try { blob = await exportFrames(res, codecs); } catch (e) { err = e; console.error('exportação', e); expLog({ stage: 'erro', err: String(e.message || e).slice(0, 120) }); }
     E.playing = false; E.exporting = false; E.exp = null; E.rate = 1; updPlay();
     try { E.wake?.release(); } catch {}
     if (ex.cancelled || !blob) {
@@ -2161,7 +2185,7 @@ document.fonts.ready.then(draw);
 ensureFonts().then(draw);
 try { navigator.storage?.persist?.(); } catch {}
 // versão do app: aparece pequena ao lado do nome, para conferir se atualizou
-const APP_VERSION = 8;
+const APP_VERSION = 9;
 { const b = document.querySelector('.brand'); if (b) b.innerHTML = `Corte <small>v${APP_VERSION}</small>`; }
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   // sempre procura a versão nova (sem usar cache) e recarrega sozinho quando ela chega
