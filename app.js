@@ -2162,8 +2162,6 @@ function openExport() {
       <button class="chip ${res === '1080' ? 'on' : ''}" data-res="1080">Full HD (1080p)</button>
       <button class="chip ${res === '4k' ? 'on' : ''}" data-res="4k">4K</button>
     </div>
-    <p class="note">Duração: ${fmt(total())}. Deixe o app aberto e a tela ligada até terminar. Se o aparelho estiver lento, a exportação demora um pouco mais, mas o vídeo sai liso.</p>
-    ${lastExportProblem() ? `<p class="note" style="color:#ffb35c">${lastExportProblem()}</p>` : ''}
     <button class="btn primary" id="exp-go">Exportar vídeo</button>
     <div id="exp-run" style="display:none">
       <div class="progress"><div id="exp-bar"></div></div><p class="note" id="exp-st"></p>
@@ -2239,21 +2237,21 @@ function exportReady(blob, type) {
   if (lastExport) URL.revokeObjectURL(lastExport.url);
   lastExport = { blob, url: URL.createObjectURL(blob), name: `corte-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}.${ext}`, type };
   if (sheetKind === 'export') { $('#exp-run').style.display = 'none'; $('#exp-go').style.display = 'block'; showExportResult(lastExport); }
-  toast('Vídeo exportado!');
+  // abre a janela de salvar/compartilhar sozinha; se o iPhone bloquear (sem toque recente), fica o botão Baixar
+  saveExport(lastExport).then((ok) => { if (!ok) toast('Vídeo pronto! Toque em Baixar'); });
+}
+async function saveExport(x) {
+  const file = new File([x.blob], x.name, { type: x.type });
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    try { await navigator.share({ files: [file] }); return true; } catch (e) { if (e.name === 'AbortError') return true; if (e.name === 'NotAllowedError') return false; }
+  }
+  const a = document.createElement('a'); a.href = x.url; a.download = x.name; document.body.appendChild(a); a.click(); a.remove();
+  return true;
 }
 function showExportResult(x) {
   const box = $('#exp-done'); if (!box) return;
-  const mb = (x.blob.size / 1048576).toFixed(1);
-  box.innerHTML = `<video class="result" src="${x.url}" controls playsinline></video>
-    <p class="note">${mb} MB · no iPhone, toque em Baixar e escolha "Salvar vídeo" para ir para a galeria.</p>
-    <button class="btn primary" id="exp-save">Baixar</button>`;
-  $('#exp-save').onclick = async () => {
-    const file = new File([x.blob], x.name, { type: x.type });
-    if (navigator.canShare && navigator.canShare({ files: [file] })) {
-      try { await navigator.share({ files: [file] }); return; } catch (e) { if (e.name === 'AbortError') return; }
-    }
-    const a = document.createElement('a'); a.href = x.url; a.download = x.name; document.body.appendChild(a); a.click(); a.remove();
-  };
+  box.innerHTML = '<button class="btn primary" id="exp-save">Baixar</button>';
+  $('#exp-save').onclick = () => saveExport(x);
 }
 async function ensureFonts() {
   const loads = [];
@@ -2349,8 +2347,8 @@ document.fonts.ready.then(draw);
 ensureFonts().then(draw);
 try { navigator.storage?.persist?.(); } catch {}
 // versão do app: aparece pequena ao lado do nome, para conferir se atualizou
-const APP_VERSION = 10;
-{ const b = document.querySelector('.brand'); if (b) b.innerHTML = `Corte <small>v${APP_VERSION}</small>`; }
+const APP_VERSION = 11;
+{ const b = document.querySelector('.brand'); if (b) b.textContent = 'Meu Editor'; }
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   // sempre procura a versão nova (sem usar cache) e recarrega sozinho quando ela chega
   const hadCtrl = !!navigator.serviceWorker.controller; let reloaded = false;
