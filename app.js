@@ -551,7 +551,8 @@ function renderTimeline() {
     el.style.left = (h + L.start * pps) + 'px'; el.style.width = Math.max(3, (L.out - L.in) * pps - 2) + 'px'; el.style.top = (ll.map.get(L.id) * 40) + 'px';
     const th = L.kind === 'image' ? images.get(L.srcId)?.url : media.get(L.srcId)?.thumb; if (th) el.style.backgroundImage = `url(${th})`;
     el.innerHTML = L.kind === 'adjust' ? '<span class="nm">🎨 Ajuste</span>' : `<span class="nm">${L.kind === 'image' ? '🖼' : '🎬'} Camada</span>`;
-    el.onclick = (e) => { e.stopPropagation(); select('layer', L.id); };
+    el.onclick = (e) => { e.stopPropagation(); if (el._dragged) { el._dragged = false; return; } select('layer', L.id); };
+    if (S.sel?.type === 'layer' && S.sel.id === L.id) { el.insertAdjacentHTML('beforeend', '<i class="lh l"></i><i class="lh r"></i>'); bindLayerDrag(el, L, h); }
     tl.appendChild(el);
   }
 
@@ -884,8 +885,8 @@ function closeSheet() {
   document.body.classList.remove('sheet-open');
   renderTimeline(); savePrefs();
 }
-function rangeRow(key, label, min, max, step, val, fmtv) {
-  return `<div class="row"><label>${label}</label><input type="range" data-k="${key}" min="${min}" max="${max}" step="${step}" value="${val}"><span class="val" data-v="${key}">${fmtv(val)}</span></div>`;
+function rangeRow(key, label, min, max, step, val, fmtv, def) {
+  return `<div class="row"><label>${label}</label><input type="range" data-k="${key}" min="${min}" max="${max}" step="${step}" value="${val}"${def != null ? ` data-def="${def}"` : ''}><span class="val" data-v="${key}">${fmtv(val)}</span></div>`;
 }
 function bindRanges(root, handlers) {
   root.querySelectorAll('input[type=range]').forEach((el) => {
@@ -899,6 +900,19 @@ function bindRanges(root, handlers) {
       if (!E.playing) draw();
     });
     el.addEventListener('change', () => { if (pend) { pushHist(pend); pend = null; } if (h.after) h.after(); });
+    // toque duplo no controle volta para o valor padrão (data-def)
+    if (el.dataset.def != null) {
+      let lastUp = 0;
+      const reset = () => {
+        const d = parseFloat(el.dataset.def); if (parseFloat(el.value) === d) return;
+        begin(); el.value = d; h.set(d);
+        const out = root.querySelector(`[data-v="${el.dataset.k}"]`); if (out) out.textContent = h.fmt(d);
+        if (!E.playing) draw();
+        if (pend) { pushHist(pend); pend = null; } if (h.after) h.after();
+      };
+      el.addEventListener('pointerup', () => { const n = performance.now(); if (n - lastUp < 350) { lastUp = 0; setTimeout(reset, 0); } else lastUp = n; });
+      el.addEventListener('dblclick', reset);
+    }
   });
 }
 const sec = (s) => `${(+s).toFixed(1)}s`;
@@ -1335,6 +1349,42 @@ function openLayerSheet(id) {
     };
   });
 }
+// camada selecionada: arrastar o meio move; arrastar as bordas muda o começo/fim
+function bindLayerDrag(el, L, h) {
+  el.addEventListener('pointerdown', (e) => {
+    if (E.playing) return;
+    const mode = e.target.classList.contains('l') ? 'l' : e.target.classList.contains('r') ? 'r' : 'm';
+    const x0 = e.clientX, o = { start: L.start, in: L.in, out: L.out }, before = snap(), pps = S.pps, T = total();
+    const maxOut = L.kind === 'video' ? (media.get(L.srcId)?.duration ?? Infinity) : Infinity;
+    const snapT = (t) => { for (const p of [0, T, S.t]) if (Math.abs(t - p) * pps < 10) return p; return t; };
+    let moved = false;
+    el.setPointerCapture(e.pointerId); e.stopPropagation(); e.preventDefault();
+    const move = (ev) => {
+      const dt = (ev.clientX - x0) / pps;
+      if (!moved && Math.abs(ev.clientX - x0) < 4) return;
+      moved = true;
+      if (mode === 'm') {
+        let ns = snapT(clamp(o.start + dt, 0, Math.max(0, T - 0.1)));
+        const ne = snapT(ns + o.out - o.in); if (ne !== ns + o.out - o.in && ne - (o.out - o.in) >= 0) ns = ne - (o.out - o.in);
+        L.start = ns;
+      } else if (mode === 'l') {
+        const end = o.start + o.out - o.in, minS = L.kind !== 'video' ? 0 : Math.max(0, o.start - o.in);
+        const ns = clamp(snapT(o.start + dt), minS, end - 0.2);
+        if (L.kind !== 'video') { L.start = ns; L.in = 0; L.out = end - ns; } else { L.in = o.in + (ns - o.start); L.start = ns; }
+      } else {
+        const ne = snapT(o.start + o.out - o.in + dt);
+        L.out = clamp(o.in + (ne - o.start), o.in + 0.2, maxOut);
+      }
+      el.style.left = (h + L.start * pps) + 'px'; el.style.width = Math.max(3, (L.out - L.in) * pps - 2) + 'px';
+      draw();
+    };
+    const up = () => {
+      el.removeEventListener('pointermove', move); el.removeEventListener('pointerup', up); el.removeEventListener('pointercancel', up);
+      if (moved) { el._dragged = true; pushHist(before); renderTimeline(); draw(); saveSoon(); setTimeout(() => (el._dragged = false), 50); }
+    };
+    el.addEventListener('pointermove', move); el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up);
+  });
+}
 function trimLayer(id, side) {
   const L = S.layers.find((x) => x.id === id), off = S.t - L.start;
   if (off < 0.05 || off > L.out - L.in - 0.05) return toast('Coloque o cursor dentro da camada selecionada');
@@ -1741,13 +1791,13 @@ function openColor(kind, id) {
   const col = tg.color, sg = (v) => (v > 0 ? '+' : '') + Math.round(v);
   const tint = (v) => (v < 0 ? 'verde ' : v > 0 ? 'roxo ' : '') + sg(v);
   openSheet('color', kind === 'clip' ? 'Ajustes do clipe' : 'Camada de ajuste', `
-    ${rangeRow('cb', 'Brilho', -100, 100, 1, col.b || 0, sg)}
-    ${rangeRow('cc', 'Contraste', -100, 100, 1, col.c || 0, sg)}
-    ${rangeRow('cs', 'Saturação', -100, 100, 1, col.s || 0, sg)}
-    ${rangeRow('ch', 'Matiz', -100, 100, 1, col.h || 0, tint)}
+    ${rangeRow('cb', 'Brilho', -100, 100, 1, col.b || 0, sg, 0)}
+    ${rangeRow('cc', 'Contraste', -100, 100, 1, col.c || 0, sg, 0)}
+    ${rangeRow('cs', 'Saturação', -100, 100, 1, col.s || 0, sg, 0)}
+    ${rangeRow('ch', 'Matiz', -100, 100, 1, col.h || 0, tint, 0)}
     <div class="tintbar"><span>verde</span><span>roxo</span></div>
     <div class="chips"><button class="chip" id="c-reset">Zerar ajustes</button></div>
-    <p class="note">${kind === 'clip' ? 'Vale só para este clipe.' : 'Vale para tudo abaixo dela (vídeo e camadas), no trecho que ela ocupa na linha do tempo. A legenda não muda.'}</p>`,
+    <p class="note">Toque duas vezes num controle para voltar a zero. ${kind === 'clip' ? 'Vale só para este clipe.' : 'Vale para tudo abaixo dela (vídeo e camadas), no trecho que ela ocupa na linha do tempo. A legenda não muda.'}</p>`,
   (b) => {
     bindRanges(b, {
       cb: { set: (v) => (col.b = v), fmt: sg }, cc: { set: (v) => (col.c = v), fmt: sg },
