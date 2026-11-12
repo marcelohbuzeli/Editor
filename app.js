@@ -2162,24 +2162,36 @@ function openExport() {
       <button class="chip ${res === '1080' ? 'on' : ''}" data-res="1080">Full HD (1080p)</button>
       <button class="chip ${res === '4k' ? 'on' : ''}" data-res="4k">4K</button>
     </div>
-    <button class="btn primary" id="exp-go">Exportar vídeo</button>
-    <div id="exp-run" style="display:none">
-      <div class="progress"><div id="exp-bar"></div></div><p class="note" id="exp-st"></p>
-      <button class="btn" id="exp-cancel">Cancelar</button>
-    </div>
-    <div id="exp-done"></div>
+    <div id="exp-run" style="display:none"><div class="progress"><div id="exp-bar"></div></div><p class="note" id="exp-st"></p></div>
+    <button class="btn primary" id="exp-btn">Exportar vídeo</button>
   `, (b) => {
-    b.querySelectorAll('[data-res]').forEach((el) => el.onclick = () => { prefs.res = el.dataset.res; savePrefs(); b.querySelectorAll('[data-res]').forEach((x) => x.classList.toggle('on', x === el)); });
-    $('#exp-go', b).onclick = () => { expLog({ stage: 'erro-mostrado' }); startExport(prefs.res || '1080'); };
-    $('#exp-cancel', b).onclick = () => cancelExport();
-    if (lastExport) showExportResult(lastExport);
+    b.querySelectorAll('[data-res]').forEach((el) => el.onclick = () => {
+      if (E.exporting) return;
+      prefs.res = el.dataset.res; savePrefs(); b.querySelectorAll('[data-res]').forEach((x) => x.classList.toggle('on', x === el)); expUI();
+    });
+    // um único botão: Exportar vídeo → Cancelar (exportando) → Baixar (pronto)
+    $('#exp-btn', b).onclick = () => {
+      const st = expState();
+      if (st === 'run') cancelExport();
+      else if (st === 'done') saveExport(lastExport);
+      else { expLog({ stage: 'erro-mostrado' }); startExport(prefs.res || '1080'); }
+    };
+    expUI();
   });
+}
+const expSig = () => snap() + '|' + (prefs.res || '1080');
+function expState() { return E.exporting ? 'run' : lastExport && lastExport.sig === expSig() ? 'done' : 'idle'; }
+function expUI(st = expState()) {
+  const btn = $('#exp-btn'), run = $('#exp-run'); if (!btn) return;
+  btn.textContent = st === 'run' ? 'Cancelar' : st === 'done' ? 'Baixar' : 'Exportar vídeo';
+  btn.classList.toggle('primary', st !== 'run');
+  run.style.display = st === 'run' ? 'block' : 'none';
 }
 async function startExport(res) {
   const mime = pickMime();
   if (!mime || !HTMLCanvasElement.prototype.captureStream) return toast('Este navegador não consegue exportar vídeo', 3000);
-  $('#exp-go').style.display = 'none'; $('#exp-run').style.display = 'block'; $('#exp-done').innerHTML = '';
-  $('#exp-st').textContent = 'Preparando…';
+  E.expSig = expSig(); E.exporting = true; expUI('run');
+  $('#exp-st').textContent = 'Preparando…'; $('#exp-bar').style.width = '0%';
   await ensureFonts();
   const [W, H] = outSize(res);
   const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
@@ -2195,7 +2207,7 @@ async function startExport(res) {
     E.playing = false; E.exporting = false; E.exp = null; E.rate = 1; updPlay();
     try { E.wake?.release(); } catch {}
     if (ex.cancelled || !blob) {
-      $('#exp-go') && ($('#exp-go').style.display = 'block'); $('#exp-run') && ($('#exp-run').style.display = 'none');
+      expUI();
       if (err) toast('Não consegui exportar: ' + (err.message || err), 4000);
       draw(); return;
     }
@@ -2224,7 +2236,7 @@ function finishExport() {
     ex.rec.onstop = () => {
       E.exporting = false; E.exp = null; E.rec = null; updPlay();
       try { E.wake?.release(); } catch {}
-      if (ex.cancelled) { $('#exp-go') && ($('#exp-go').style.display = 'block'); $('#exp-run') && ($('#exp-run').style.display = 'none'); return; }
+      if (ex.cancelled) { expUI(); return; }
       const type = ex.mime.split(';')[0];
       exportReady(new Blob(ex.chunks, { type }), type);
     };
@@ -2235,8 +2247,8 @@ function cancelExport() { if (!E.exp) return; E.exp.cancelled = true; if (!E.exp
 function exportReady(blob, type) {
   const ext = type.includes('mp4') ? 'mp4' : 'webm';
   if (lastExport) URL.revokeObjectURL(lastExport.url);
-  lastExport = { blob, url: URL.createObjectURL(blob), name: `corte-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}.${ext}`, type };
-  if (sheetKind === 'export') { $('#exp-run').style.display = 'none'; $('#exp-go').style.display = 'block'; showExportResult(lastExport); }
+  lastExport = { blob, url: URL.createObjectURL(blob), name: `corte-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}.${ext}`, type, sig: E.expSig };
+  if (sheetKind === 'export') expUI();
   // abre a janela de salvar/compartilhar sozinha; se o iPhone bloquear (sem toque recente), fica o botão Baixar
   saveExport(lastExport).then((ok) => { if (!ok) toast('Vídeo pronto! Toque em Baixar'); });
 }
@@ -2247,11 +2259,6 @@ async function saveExport(x) {
   }
   const a = document.createElement('a'); a.href = x.url; a.download = x.name; document.body.appendChild(a); a.click(); a.remove();
   return true;
-}
-function showExportResult(x) {
-  const box = $('#exp-done'); if (!box) return;
-  box.innerHTML = '<button class="btn primary" id="exp-save">Baixar</button>';
-  $('#exp-save').onclick = () => saveExport(x);
 }
 async function ensureFonts() {
   const loads = [];
@@ -2347,7 +2354,7 @@ document.fonts.ready.then(draw);
 ensureFonts().then(draw);
 try { navigator.storage?.persist?.(); } catch {}
 // versão do app: aparece pequena ao lado do nome, para conferir se atualizou
-const APP_VERSION = 11;
+const APP_VERSION = 12;
 { const b = document.querySelector('.brand'); if (b) b.textContent = 'Meu Editor'; }
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   // sempre procura a versão nova (sem usar cache) e recarrega sozinho quando ela chega
