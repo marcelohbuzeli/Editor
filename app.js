@@ -89,7 +89,7 @@ const buffers = new Map();  // id -> { buffer, peaks, name, fileKey }
 
 function loadPrefs() { try { return JSON.parse(localStorage.getItem('corte-prefs') || '{}'); } catch { return {}; } }
 function savePrefs() {
-  try { localStorage.setItem('corte-prefs', JSON.stringify({ v: 3, cap: S.cap, fx: S.fx, groqKey: prefs.groqKey, res: prefs.res, zoomDef: prefs.zoomDef, fadeDef: prefs.fadeDef, sfxTrim: prefs.sfxTrim, expCompat: !!prefs.expCompat })); } catch {}
+  try { localStorage.setItem('corte-prefs', JSON.stringify({ v: 3, cap: S.cap, fx: S.fx, groqKey: prefs.groqKey, res: prefs.res, zoomDef: prefs.zoomDef, fadeDef: prefs.fadeDef, sfxTrim: prefs.sfxTrim })); } catch {}
 }
 
 // ---------- Histórico (desfazer/refazer) ----------
@@ -552,7 +552,8 @@ function renderTimeline() {
     const th = L.kind === 'image' ? images.get(L.srcId)?.url : media.get(L.srcId)?.thumb; if (th) el.style.backgroundImage = `url(${th})`;
     el.innerHTML = L.kind === 'adjust' ? '<span class="nm">🎨 Ajuste</span>' : `<span class="nm">${L.kind === 'image' ? '🖼' : '🎬'} Camada</span>`;
     el.onclick = (e) => { e.stopPropagation(); if (el._dragged) { el._dragged = false; return; } select('layer', L.id); };
-    if (S.sel?.type === 'layer' && S.sel.id === L.id) { el.insertAdjacentHTML('beforeend', '<i class="lh l"></i><i class="lh r"></i>'); bindLayerDrag(el, L, h); }
+    if (S.sel?.type === 'layer' && S.sel.id === L.id) addHandles(el);
+    bindDrag(el, 'layer', L.id, spanOps(el, L, h, { free: L.kind !== 'video', maxOut: L.kind === 'video' ? (media.get(L.srcId)?.duration ?? Infinity) : Infinity }));
     tl.appendChild(el);
   }
 
@@ -566,14 +567,17 @@ function renderTimeline() {
     const m = media.get(r.clip.mediaId); if (m?.thumb) el.style.backgroundImage = `url(${m.thumb})`;
     el.innerHTML = `<span class="dur">${(r.end - r.start).toFixed(1)}s</span>` +
       (r.clip.vfi ? `<i class="vf in" style="width:${r.clip.vfi * pps}px"></i>` : '') + (r.clip.vfo ? `<i class="vf out" style="width:${r.clip.vfo * pps}px"></i>` : '');
-    el.onclick = (e) => { e.stopPropagation(); select('clip', r.clip.id); };
+    el.onclick = (e) => { e.stopPropagation(); if (el._dragged) return; select('clip', r.clip.id); };
+    if (isSel) addHandles(el);
+    bindDrag(el, 'clip', r.clip.id, clipOps(el, r, h));
     tv.appendChild(el);
     for (const z of S.zooms.filter((x) => x.clipId === r.clip.id)) {
       const zb = document.createElement('button'); zb.className = 'zm'; zb.style.left = (h + (r.start + z.off) * pps + 3) + 'px';
       zb.innerHTML = ic(z.type === 'in' ? 'zoomIn' : 'zoomOut'); zb.setAttribute('aria-label', 'Zoom');
       zb.onclick = (e) => { e.stopPropagation(); openZoomSheet(r.clip.id, z.id); }; tv.appendChild(zb);
     }
-    if (r.i > 0) {
+    const selC = (S.sel?.type === 'clip' || S.sel?.type === 'clipaudio') ? S.sel.id : null;
+    if (r.i > 0 && !(selC && (selC === r.clip.id || selC === L[r.i - 1].clip.id))) { // com o clipe selecionado, as alças ficam no lugar do ⚡
       const b = document.createElement('button'); const tr = r.clip.transition || 'none';
       b.className = 'tr ' + tr; b.style.left = (h + r.start * pps) + 'px';
       b.innerHTML = tr === 'flash' ? ic('zap') : tr === 'burn' ? ic('flame') : ic('plus'); b.setAttribute('aria-label', 'Transição deste corte');
@@ -594,7 +598,9 @@ function renderTimeline() {
     el.style.left = (h + r.start * pps) + 'px'; el.style.width = w + 'px';
     if (has) { const cv = document.createElement('canvas'); el.appendChild(cv); drawWave(cv, m.bufferId, c.in, c.out, (c.volume ?? 1) * S.origVolume, c.afi, c.afo, w); }
     const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = has ? '🔗 Áudio original' : 'sem áudio'; el.appendChild(nm);
-    el.onclick = (e) => { e.stopPropagation(); has ? select('clipaudio', c.id) : toast('Não consegui ler o áudio deste vídeo', 2500); };
+    el.onclick = (e) => { e.stopPropagation(); if (el._dragged) return; has ? select('clipaudio', c.id) : toast('Não consegui ler o áudio deste vídeo', 2500); };
+    if (S.sel?.type === 'clipaudio' && S.sel.id === c.id) addHandles(el);
+    if (has) bindDrag(el, 'clipaudio', c.id, clipOps(el, r, h));
     to.appendChild(el);
   }
 
@@ -605,7 +611,9 @@ function renderTimeline() {
     el.className = 'capb' + (S.sel?.type === 'caption' && S.sel.id === sp.cap.id ? ' sel' : '');
     el.style.left = (h + sp.start * pps) + 'px'; el.style.width = Math.max(3, (sp.end - sp.start) * pps - 1) + 'px';
     el.textContent = sp.cap.text;
-    el.onclick = (e) => { e.stopPropagation(); seekTo(sp.start + 0.01); select('caption', sp.cap.id); };
+    el.onclick = (e) => { e.stopPropagation(); if (el._dragged) return; seekTo(sp.start + 0.01); select('caption', sp.cap.id); };
+    if (S.sel?.type === 'caption' && S.sel.id === sp.cap.id) addHandles(el);
+    bindDrag(el, 'caption', sp.cap.id, capOps(el, sp, h));
     tc.appendChild(el);
   }
 
@@ -620,7 +628,8 @@ function renderTimeline() {
     const cv = document.createElement('canvas'); el.appendChild(cv);
     const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = '♪ ' + (a.name || 'Áudio'); el.appendChild(nm);
     el.onclick = (e) => { e.stopPropagation(); if (el._dragged) { el._dragged = false; return; } select('audio', a.id); };
-    if (S.sel?.type === 'audio' && S.sel.id === a.id) { el.insertAdjacentHTML('beforeend', '<i class="lh l"></i><i class="lh r"></i>'); bindLayerDrag(el, a, h, { free: false, maxOut: buffers.get(a.bufferId)?.buffer.duration ?? Infinity }); }
+    if (S.sel?.type === 'audio' && S.sel.id === a.id) addHandles(el);
+    bindDrag(el, 'audio', a.id, spanOps(el, a, h, { free: false, maxOut: buffers.get(a.bufferId)?.buffer.duration ?? Infinity }));
     ta.appendChild(el);
     drawWave(cv, a.bufferId, a.in, a.out, a.volume ?? 1, a.fadeIn, a.fadeOut, w);
   }
@@ -1351,42 +1360,210 @@ function openLayerSheet(id) {
     };
   });
 }
-// camada selecionada: arrastar o meio move; arrastar as bordas muda o começo/fim
-function bindLayerDrag(el, L, h, opt = { free: L.kind !== 'video', maxOut: L.kind === 'video' ? (media.get(L.srcId)?.duration ?? Infinity) : Infinity }) {
-  el.addEventListener('pointerdown', (e) => {
-    if (E.playing) return;
-    const mode = e.target.classList.contains('l') ? 'l' : e.target.classList.contains('r') ? 'r' : 'm';
-    const x0 = e.clientX, o = { start: L.start, in: L.in, out: L.out }, before = snap(), pps = S.pps, T = total();
-    const maxOut = opt.maxOut;
-    const snapT = (t) => { for (const p of [0, T, S.t]) if (Math.abs(t - p) * pps < 10) return p; return t; };
-    let moved = false;
-    el.setPointerCapture(e.pointerId); e.stopPropagation(); e.preventDefault();
-    const move = (ev) => {
-      const dt = (ev.clientX - x0) / pps;
-      if (!moved && Math.abs(ev.clientX - x0) < 4) return;
-      moved = true;
-      if (mode === 'm') {
-        let ns = snapT(clamp(o.start + dt, 0, Math.max(0, T - 0.1)));
-        const ne = snapT(ns + o.out - o.in); if (ne !== ns + o.out - o.in && ne - (o.out - o.in) >= 0) ns = ne - (o.out - o.in);
+// ---------- Arrastar itens na linha do tempo ----------
+// Item selecionado: arraste o meio para mover e as alças brancas para mudar começo/fim.
+// Item não selecionado: segure um instante e arraste (no computador, arraste direto com o mouse).
+function bindDrag(el, selType, selId, ops) {
+  let st = null, lp = null, p0 = null;
+  const isSel = () => S.sel?.type === selType && S.sel.id === selId;
+  const begin = (x, target) => {
+    if (E.playing || E.exporting) return false;
+    const mode = target?.classList?.contains('lh') ? (target.classList.contains('l') ? 'l' : 'r') : 'm';
+    st = { x0: x, mode, before: snap(), moved: false, pps: S.pps, T: total() };
+    ops.start(st);
+    return true;
+  };
+  const snapT = (t) => { for (const p of [0, st.T, S.t]) if (Math.abs(t - p) * st.pps < 10) return p; return t; };
+  const mv = (x) => {
+    if (!st) return;
+    if (!st.moved && Math.abs(x - st.x0) < 3) return;
+    st.moved = true; ops.move(st, (x - st.x0) / st.pps, snapT);
+    if (!E.playing) draw();
+  };
+  const finish = () => {
+    clearTimeout(lp); lp = null; el.classList.remove('lift');
+    if (!st) return;
+    const s0 = st; st = null;
+    if (s0.moved) { el._dragged = true; ops.end?.(s0); pushHist(s0.before); refresh(); saveSoon(); setTimeout(() => (el._dragged = false), 120); }
+  };
+  const markSel = () => {
+    if (isSel()) return;
+    S.sel = { type: selType, id: selId };
+    document.querySelectorAll('#tl-inner .sel').forEach((x) => x.classList.remove('sel'));
+    el.classList.add('sel'); renderToolbar();
+    try { navigator.vibrate?.(15); } catch {}
+  };
+  el.addEventListener('touchstart', (e) => {
+    if (e.touches.length !== 1) { finish(); return; }
+    const t0 = e.touches[0];
+    if (isSel()) { if (begin(t0.clientX, e.target)) e.preventDefault(); return; }
+    p0 = [t0.clientX, t0.clientY]; clearTimeout(lp);
+    lp = setTimeout(() => { lp = null; markSel(); if (begin(p0[0], el)) el.classList.add('lift'); }, 300);
+  }, { passive: false });
+  el.addEventListener('touchmove', (e) => {
+    const t = e.touches[0];
+    if (lp && p0 && Math.hypot(t.clientX - p0[0], t.clientY - p0[1]) > 8) { clearTimeout(lp); lp = null; } // é rolagem normal
+    if (!st) return;
+    e.preventDefault(); mv(t.clientX);
+  }, { passive: false });
+  el.addEventListener('touchend', (e) => { const had = !!st; finish(); if (had) e.preventDefault(); }, { passive: false });
+  el.addEventListener('touchcancel', finish);
+  el.addEventListener('mousedown', (e) => {
+    if (e.button !== 0 || !begin(e.clientX, e.target)) return;
+    e.preventDefault();
+    const mm = (ev) => { if (st && !st.moved && Math.abs(ev.clientX - st.x0) >= 3) markSel(); mv(ev.clientX); };
+    const mu = () => { removeEventListener('mousemove', mm); removeEventListener('mouseup', mu); finish(); };
+    addEventListener('mousemove', mm); addEventListener('mouseup', mu);
+  });
+}
+const addHandles = (el) => el.insertAdjacentHTML('beforeend', '<i class="lh l"></i><i class="lh r"></i>');
+// camadas, ajuste e trilhas de áudio (têm início próprio na linha do tempo)
+function spanOps(el, L, h, opt) {
+  return {
+    start: (st) => { st.o = { start: L.start, in: L.in, out: L.out }; },
+    move: (st, dt, snapT) => {
+      const o = st.o, len = o.out - o.in, pps = st.pps;
+      if (st.mode === 'm') {
+        let ns = snapT(clamp(o.start + dt, 0, Math.max(0, st.T - 0.1)));
+        const ne = snapT(ns + len); if (ne !== ns + len && ne - len >= 0) ns = ne - len;
         L.start = ns;
-      } else if (mode === 'l') {
-        const end = o.start + o.out - o.in, minS = opt.free ? 0 : Math.max(0, o.start - o.in);
+      } else if (st.mode === 'l') {
+        const end = o.start + len, minS = opt.free ? 0 : Math.max(0, o.start - o.in);
         const ns = clamp(snapT(o.start + dt), minS, end - 0.2);
         if (opt.free) { L.start = ns; L.in = 0; L.out = end - ns; } else { L.in = o.in + (ns - o.start); L.start = ns; }
       } else {
-        const ne = snapT(o.start + o.out - o.in + dt);
-        L.out = clamp(o.in + (ne - o.start), o.in + 0.2, maxOut);
+        const ne = snapT(o.start + len + dt);
+        L.out = clamp(o.in + (ne - o.start), o.in + 0.2, opt.maxOut);
       }
       el.style.left = (h + L.start * pps) + 'px'; el.style.width = Math.max(3, (L.out - L.in) * pps - 2) + 'px';
-      draw();
-    };
-    const up = () => {
-      el.removeEventListener('pointermove', move); el.removeEventListener('pointerup', up); el.removeEventListener('pointercancel', up);
-      if (moved) { el._dragged = true; pushHist(before); renderTimeline(); draw(); saveSoon(); setTimeout(() => (el._dragged = false), 50); }
-    };
-    el.addEventListener('pointermove', move); el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up);
-  });
+    },
+  };
 }
+// clipes do vídeo principal: bordas aparam, o meio muda a ordem
+function clipOps(el, r, h) {
+  const c = r.clip, dur = media.get(c.mediaId)?.duration ?? Infinity;
+  return {
+    start: (st) => { st.o = { in: c.in, out: c.out }; },
+    move: (st, dt) => {
+      const pps = st.pps;
+      if (st.mode === 'l') c.in = clamp(st.o.in + dt, 0, st.o.out - 0.2);
+      else if (st.mode === 'r') c.out = clamp(st.o.out + dt, st.o.in + 0.2, dur);
+      else { el.style.transform = `translateX(${dt * pps}px)`; el.style.zIndex = 6; st.dt = dt; return; }
+      el.style.width = Math.max(3, (c.out - c.in) * pps - 2) + 'px';
+    },
+    end: (st) => {
+      if (st.mode === 'l') {
+        const d = c.in - st.o.in;
+        S.zooms = S.zooms.map((z) => (z.clipId === c.id ? { ...z, off: z.off - d } : z)).filter((z) => z.clipId !== c.id || z.off >= -0.01).map((z) => (z.clipId === c.id && z.off < 0 ? { ...z, off: 0 } : z));
+      } else if (st.mode === 'r') {
+        S.zooms = S.zooms.filter((z) => z.clipId !== c.id || z.off < c.out - c.in);
+      } else if (st.dt) {
+        const lay = layout(), me = lay.find((x) => x.clip.id === c.id); if (!me) return;
+        const center = me.start + st.dt + (me.end - me.start) / 2;
+        const others = lay.filter((x) => x.clip.id !== c.id);
+        const idx = others.filter((x) => (x.start + x.end) / 2 < center).length;
+        S.clips = others.map((x) => x.clip); S.clips.splice(idx, 0, c);
+      }
+    },
+  };
+}
+// blocos de legenda (tempo no vídeo de origem)
+function capOps(el, sp, h) {
+  const cap = sp.cap;
+  return {
+    start: (st) => { st.o = { start: cap.start, end: cap.end }; },
+    move: (st, dt) => {
+      const o = st.o, pps = st.pps;
+      if (st.mode === 'l') cap.start = clamp(o.start + dt, 0, o.end - 0.1);
+      else if (st.mode === 'r') cap.end = Math.max(o.start + 0.1, o.end + dt);
+      else { const d = Math.max(-o.start, dt); cap.start = o.start + d; cap.end = o.end + d; }
+      el.style.left = (h + (sp.start + cap.start - o.start) * pps) + 'px';
+      el.style.width = Math.max(3, (sp.end - sp.start + (cap.end - o.end) - (cap.start - o.start)) * pps - 1) + 'px';
+    },
+  };
+}
+
+// ---------- Áudio da exportação (AAC), conferido antes de gravar o vídeo ----------
+const ASC_48K_STEREO = new Uint8Array([0x11, 0x90]); // AAC-LC, 48 kHz, 2 canais
+function peakOfBuf(buf) {
+  let mx = 0;
+  for (let ch = 0; ch < buf.numberOfChannels; ch++) { const d = buf.getChannelData(ch); for (let i = 0; i < d.length; i += 7) { const a = Math.abs(d[i]); if (a > mx) mx = a; } }
+  return mx;
+}
+// AAC pelo codificador do navegador; remove cabeçalhos ADTS se vierem
+async function aacWebCodecs(mix) {
+  const frames = []; let err = null;
+  const enc = new AudioEncoder({
+    output: (c) => {
+      let d = new Uint8Array(c.byteLength); c.copyTo(d);
+      if (d.length > 9 && d[0] === 0xff && (d[1] & 0xf6) === 0xf0) d = d.slice((d[1] & 1) ? 7 : 9);
+      if (d.length) frames.push(d);
+    },
+    error: (e) => (err = e),
+  });
+  enc.configure({ codec: 'mp4a.40.2', sampleRate: 48000, numberOfChannels: 2, bitrate: 192000 });
+  const L0 = mix.getChannelData(0), R0 = mix.numberOfChannels > 1 ? mix.getChannelData(1) : L0, N = mix.length, CH = 4800;
+  for (let i = 0; i < N && !err; i += CH) {
+    const n = Math.min(CH, N - i), data = new Float32Array(n * 2);
+    data.set(L0.subarray(i, i + n), 0); data.set(R0.subarray(i, i + n), n);
+    const ad = new AudioData({ format: 'f32-planar', sampleRate: 48000, numberOfFrames: n, numberOfChannels: 2, timestamp: Math.round(i / 48000 * 1e6), data });
+    enc.encode(ad); ad.close();
+    if (enc.encodeQueueSize > 50) await new Promise((r) => setTimeout(r, 5));
+  }
+  await enc.flush(); enc.close();
+  if (err) throw err;
+  return { frames, asc: ASC_48K_STEREO, sr: 48000, ch: 2, via: 'codificador' };
+}
+// confere se o AAC gerado toca (decodifica de volta e mede o volume)
+async function aacSounds(a, wantPeak) {
+  if (!a.frames.length) return false;
+  if (wantPeak < 0.002) return true; // a linha do tempo é silenciosa mesmo
+  const cfg = { aot: a.asc[0] >> 3, fi: ((a.asc[0] & 7) << 1) | (a.asc[1] >> 7), ch: (a.asc[1] >> 3) & 15 };
+  const n = Math.min(a.frames.length, 400); let tot = 0;
+  for (let i = 0; i < n; i++) tot += a.frames[i].length + 7;
+  const out = new Uint8Array(tot); let o = 0;
+  for (let i = 0; i < n; i++) { out.set(adtsHeader(a.frames[i].length, cfg), o); o += 7; out.set(a.frames[i], o); o += a.frames[i].length; }
+  try { const b = await decodeBytes(out); return b.duration > 0.5 * n * 1024 / a.sr && peakOfBuf(b) > 0.002; } catch { return false; }
+}
+// plano B: grava o áudio em tempo real com o gravador do navegador e tira o AAC do arquivo
+async function aacRecorder(mix) {
+  const types = ['audio/mp4;codecs=mp4a.40.2', 'audio/mp4', 'video/mp4'];
+  const mime = types.find((m) => window.MediaRecorder && MediaRecorder.isTypeSupported(m));
+  if (!mime) throw new Error('sem gravador de áudio');
+  const ctx = ac(); await ctx.resume();
+  const dest = ctx.createMediaStreamDestination(), src = ctx.createBufferSource();
+  src.buffer = mix; src.connect(dest);
+  const rec = new MediaRecorder(dest.stream, { mimeType: mime, audioBitsPerSecond: 192000 }), parts = [];
+  rec.ondataavailable = (e) => { if (e.data?.size) parts.push(e.data); };
+  const stopped = new Promise((r) => (rec.onstop = r));
+  rec.start(1000); src.start(ctx.currentTime + 0.05);
+  const t0 = performance.now(), D = mix.duration;
+  while ((performance.now() - t0) / 1000 < D + 0.4) {
+    if (E.exp?.cancelled) break;
+    const lab = $('#exp-st'); if (lab) lab.textContent = `Gravando o áudio… ${Math.min(100, Math.round(100 * (performance.now() - t0) / 1000 / D))}%`;
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  rec.stop(); try { src.stop(); } catch {} await stopped;
+  const file = new Blob(parts, { type: mime });
+  const MP4Box = await loadMp4box();
+  const ab = await file.arrayBuffer(); ab.fileStart = 0;
+  const mp4 = MP4Box.createFile(); let info = null; mp4.onReady = (i) => (info = i); mp4.appendBuffer(ab); mp4.flush();
+  const track = info?.tracks.find((t) => /^mp4a/.test(t.codec)); if (!track) throw new Error('gravação sem áudio AAC');
+  const trak = mp4.getTrackById(track.id), cfg = aacConfig(trak, track), bytes = new Uint8Array(ab);
+  const frames = (trak.samples || []).map((s) => bytes.slice(s.offset, s.offset + s.size));
+  const sr = SR_TABLE[cfg.fi] || track.audio?.sample_rate || 48000;
+  const asc = new Uint8Array([(cfg.aot << 3) | (cfg.fi >> 1), ((cfg.fi & 1) << 7) | (cfg.ch << 3)]);
+  return { frames, asc, sr, ch: cfg.ch, via: 'gravador' };
+}
+async function buildExportAudio(T) {
+  const mix = await renderMixdown(T, 48000), peak = peakOfBuf(mix);
+  let a = null, why = '';
+  try { a = await aacWebCodecs(mix); if (!(await aacSounds(a, peak))) { why = 'codificador sem som'; a = null; } } catch (e) { why = String(e.message || e); a = null; }
+  if (!a) a = await aacRecorder(mix);
+  expLog({ audio: a.via, peak: Math.round(peak * 100) / 100, why });
+  return a;
+}
+
 function trimLayer(id, side) {
   const L = S.layers.find((x) => x.id === id), off = S.t - L.start;
   if (off < 0.05 || off > L.out - L.in - 0.05) return toast('Coloque o cursor dentro da camada selecionada');
@@ -1820,7 +1997,7 @@ function loadMuxer() {
   }));
 }
 async function pickCodecs(W, H, vbr) {
-  if (!window.VideoEncoder || !window.AudioEncoder || !window.VideoFrame || !window.AudioData || !('requestVideoFrameCallback' in HTMLVideoElement.prototype)) return null;
+  if (!window.VideoEncoder || !window.VideoFrame || !('requestVideoFrameCallback' in HTMLVideoElement.prototype)) return null;
   const big = W * H > 1920 * 1088;
   const vlist = big ? ['avc1.640033', 'avc1.4d0033', 'avc1.420033', 'avc1.640034'] : ['avc1.640028', 'avc1.4d0028', 'avc1.42002a', 'avc1.640033'];
   let vcfg = null;
@@ -1829,9 +2006,7 @@ async function pickCodecs(W, H, vbr) {
     try { if ((await VideoEncoder.isConfigSupported(c)).supported) { vcfg = c; break; } } catch {}
   }
   if (!vcfg) return null;
-  const acfg = { codec: 'mp4a.40.2', sampleRate: 48000, numberOfChannels: 2, bitrate: 192000 };
-  try { if (!(await AudioEncoder.isConfigSupported(acfg)).supported) return null; } catch { return null; }
-  return { vcfg, acfg };
+  return { vcfg };
 }
 async function renderMixdown(T, sr) {
   ac(); await actx.resume().catch(() => {});
@@ -1850,20 +2025,14 @@ function lastExportProblem() {
     return `A última exportação parou (etapa: ${x.stage}${x.pct != null ? ', ' + x.pct + '%' : ''}${x.mode ? ', modo ' + x.mode : ''}${x.mb != null ? ', ' + x.mb + ' MB' : ''}${x.err ? ', erro: ' + x.err : ''}; ${x.res || ''} ${x.codec || ''}, ${x.dur || '?'}s).`;
   } catch { return ''; }
 }
-async function encodeMixdown(aenc, T) {
-  const mix = await renderMixdown(T, 48000);
-  const L0 = mix.getChannelData(0), R0 = mix.getChannelData(1), N = mix.length, CH = 4800;
-  for (let i = 0; i < N; i += CH) {
-    const n = Math.min(CH, N - i), data = new Float32Array(n * 2);
-    data.set(L0.subarray(i, i + n), 0); data.set(R0.subarray(i, i + n), n);
-    const ad = new AudioData({ format: 'f32-planar', sampleRate: 48000, numberOfFrames: n, numberOfChannels: 2, timestamp: Math.round(i / 48000 * 1e6), data });
-    aenc.encode(ad); ad.close();
-    if (aenc.encodeQueueSize > 50) await new Promise((r) => setTimeout(r, 5));
-  }
-}
 async function exportFrames(res, codecs) {
   const FPS = 30, T = total(), [W, H] = outSize(res), ex = E.exp;
   const Mux = await loadMuxer();
+  // 1) áudio: mixagem completa fora do tempo real, convertida em AAC e conferida (tem que ter som)
+  expLog({ stage: 'audio', res, codec: codecs.vcfg.codec, dur: Math.round(T), audio: '', why: '' });
+  $('#exp-st').textContent = 'Preparando o áudio…';
+  const aud = await buildExportAudio(T);
+  if (ex.cancelled) return null;
   // grava o arquivo em pedaços (sem juntar tudo na memória no final — o iPhone fecha a página se a memória estourar)
   const parts = []; let written = 0;
   const target = new Mux.StreamTarget({
@@ -1879,18 +2048,15 @@ async function exportFrames(res, codecs) {
     },
   });
   const muxer = new Mux.Muxer({ target, fastStart: false, firstTimestampBehavior: 'offset',
-    video: { codec: 'avc', width: W, height: H, frameRate: FPS }, audio: { codec: 'aac', numberOfChannels: 2, sampleRate: 48000 } });
+    video: { codec: 'avc', width: W, height: H, frameRate: FPS }, audio: { codec: 'aac', numberOfChannels: aud.ch, sampleRate: aud.sr } });
   let encErr = null;
   const venc = new VideoEncoder({ output: (c, m) => muxer.addVideoChunk(c, m), error: (e) => (encErr = e) });
   venc.configure(codecs.vcfg);
-  const aenc = new AudioEncoder({ output: (c, m) => muxer.addAudioChunk(c, m), error: (e) => (encErr = e) });
-  aenc.configure(codecs.acfg);
-
-  // 1) áudio: mixagem completa fora do tempo real
-  expLog({ stage: 'audio', res, codec: codecs.vcfg.codec, dur: Math.round(T) });
-  $('#exp-st').textContent = 'Preparando o áudio…';
-  await encodeMixdown(aenc, T);
-  await aenc.flush(); // libera a mixagem da memória antes do vídeo
+  {
+    const fd = Math.round(1024 / aud.sr * 1e6), meta = { decoderConfig: { codec: 'mp4a.40.2', sampleRate: aud.sr, numberOfChannels: aud.ch, description: aud.asc } };
+    aud.frames.forEach((d, i) => muxer.addAudioChunkRaw(d, 'key', Math.round(i * 1024 / aud.sr * 1e6), fd, i === 0 ? meta : undefined));
+    aud.frames = null;
+  }
 
   // 2) vídeo: cada quadro do clipe é desenhado e gravado com o tempo exato
   const cv = ex.cv, cx = ex.cx, L = layout(), total_frames = Math.max(1, Math.round(T * FPS));
@@ -1920,7 +2086,7 @@ async function exportFrames(res, codecs) {
     }
     return n;
   };
-  const drain = async () => { while (venc.encodeQueueSize > 3 || aenc.encodeQueueSize > 20) await new Promise((r) => setTimeout(r, 8)); };
+  const drain = async () => { while (venc.encodeQueueSize > 3) await new Promise((r) => setTimeout(r, 8)); };
   pool.forEach((v) => { v.pause(); v._clipId = null; }); activeV = null;
 
   for (let ci = 0; ci < L.length && !ex.cancelled; ci++) {
@@ -1973,10 +2139,10 @@ async function exportFrames(res, codecs) {
   }
   E.rate = 1; pool.forEach((v) => { v.pause(); v.playbackRate = 1; });
   for (const [, lv] of layerEls) { lv.pause(); lv.playbackRate = 1; }
-  if (ex.cancelled) { try { venc.close(); aenc.close(); } catch {} return null; }
+  if (ex.cancelled) { try { venc.close(); } catch {} return null; }
   if (k < total_frames) { const lr = L[L.length - 1]; await emitUpTo(T, lr, activeV); }
-  await venc.flush(); await aenc.flush(); muxer.finalize();
-  venc.close(); aenc.close();
+  await venc.flush(); muxer.finalize();
+  venc.close();
   expLog({ stage: 'pronto' });
   return new Blob(parts.map((p) => p.d), { type: 'video/mp4' });
 }
@@ -1997,8 +2163,7 @@ function openExport() {
       <button class="chip ${res === '4k' ? 'on' : ''}" data-res="4k">4K</button>
     </div>
     <p class="note">Duração: ${fmt(total())}. Deixe o app aberto e a tela ligada até terminar. Se o aparelho estiver lento, a exportação demora um pouco mais, mas o vídeo sai liso.</p>
-    ${lastExportProblem() ? `<p class="note" style="color:#ffb35c">${lastExportProblem()} Se acontecer de novo, tente o modo compatível.</p>` : ''}
-    <label class="row"><label>Modo compatível</label><span style="flex:1;font-size:12px;color:var(--muted)">grava em tempo real (pode travar um pouco)</span><input type="checkbox" id="exp-compat" ${prefs.expCompat ? 'checked' : ''}></label>
+    ${lastExportProblem() ? `<p class="note" style="color:#ffb35c">${lastExportProblem()}</p>` : ''}
     <button class="btn primary" id="exp-go">Exportar vídeo</button>
     <div id="exp-run" style="display:none">
       <div class="progress"><div id="exp-bar"></div></div><p class="note" id="exp-st"></p>
@@ -2007,7 +2172,6 @@ function openExport() {
     <div id="exp-done"></div>
   `, (b) => {
     b.querySelectorAll('[data-res]').forEach((el) => el.onclick = () => { prefs.res = el.dataset.res; savePrefs(); b.querySelectorAll('[data-res]').forEach((x) => x.classList.toggle('on', x === el)); });
-    $('#exp-compat', b).onchange = (e) => { prefs.expCompat = e.target.checked; savePrefs(); };
     $('#exp-go', b).onclick = () => { expLog({ stage: 'erro-mostrado' }); startExport(prefs.res || '1080'); };
     $('#exp-cancel', b).onclick = () => cancelExport();
     if (lastExport) showExportResult(lastExport);
@@ -2023,7 +2187,7 @@ async function startExport(res) {
   const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
   const cx = cv.getContext('2d'); cx.fillStyle = '#000'; cx.fillRect(0, 0, W, H);
   ac(); await actx.resume();
-  const codecs = prefs.expCompat ? null : await pickCodecs(W, H, res === '4k' ? 30_000_000 : 10_000_000);
+  const codecs = await pickCodecs(W, H, res === '4k' ? 30_000_000 : 10_000_000);
   if (codecs) {
     const ex = { cv, cx, W, H, mime: 'video/mp4', res, cancelled: false, frames: true };
     E.exporting = true; E.exp = ex; E.playing = true; E.stalled = false; updPlay();
@@ -2081,14 +2245,14 @@ function showExportResult(x) {
   const box = $('#exp-done'); if (!box) return;
   const mb = (x.blob.size / 1048576).toFixed(1);
   box.innerHTML = `<video class="result" src="${x.url}" controls playsinline></video>
-    <p class="note">${x.name} · ${mb} MB</p>
-    <button class="btn primary" id="exp-share">Salvar ou postar</button>
-    <a class="btn" href="${x.url}" download="${x.name}">Baixar arquivo</a>`;
-  $('#exp-share').onclick = async () => {
+    <p class="note">${mb} MB · no iPhone, toque em Baixar e escolha "Salvar vídeo" para ir para a galeria.</p>
+    <button class="btn primary" id="exp-save">Baixar</button>`;
+  $('#exp-save').onclick = async () => {
     const file = new File([x.blob], x.name, { type: x.type });
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
-      try { await navigator.share({ files: [file] }); } catch (e) { if (e.name !== 'AbortError') toast('Não foi possível compartilhar'); }
-    } else toast('Use "Baixar arquivo" neste navegador');
+      try { await navigator.share({ files: [file] }); return; } catch (e) { if (e.name === 'AbortError') return; }
+    }
+    const a = document.createElement('a'); a.href = x.url; a.download = x.name; document.body.appendChild(a); a.click(); a.remove();
   };
 }
 async function ensureFonts() {
@@ -2185,7 +2349,7 @@ document.fonts.ready.then(draw);
 ensureFonts().then(draw);
 try { navigator.storage?.persist?.(); } catch {}
 // versão do app: aparece pequena ao lado do nome, para conferir se atualizou
-const APP_VERSION = 9;
+const APP_VERSION = 10;
 { const b = document.querySelector('.brand'); if (b) b.innerHTML = `Corte <small>v${APP_VERSION}</small>`; }
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   // sempre procura a versão nova (sem usar cache) e recarrega sozinho quando ela chega
