@@ -41,6 +41,7 @@ const ICONS = {
   fade: '<rect x="3" y="3" width="18" height="18" rx="3"/><path d="M3 21 21 3M3 15l12-12M3 9l6-6"/>',
   wave: '<path d="M2 12h2M6 8v8M10 4v16M14 7v10M18 10v4M22 12h0"/>',
   layers: '<path d="m12 2 10 5-10 5L2 7z"/><path d="m2 17 10 5 10-5M2 12l10 5 10-5"/>',
+  contrast: '<circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor"/>',
   unlink: '<path d="m18.84 12.25 1.72-1.71a5 5 0 0 0-7.07-7.07l-1.72 1.71M5.17 11.75l-1.71 1.71a5 5 0 0 0 7.07 7.07l1.71-1.71M8 2v3M2 8h3M16 22v-3M22 16h-3"/>',
 };
 const ic = (n) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICONS[n]}</svg>`;
@@ -288,8 +289,8 @@ function envelope(param, pts, fromT, now) {
   param.setValueAtTime(val(fromT), now);
   for (const [t, v] of pts) if (t > fromT) param.linearRampToValueAtTime(v, now + (t - fromT));
 }
-function scheduleAudio(fromT, dest) {
-  const ctx = ac(), now = ctx.currentTime + 0.06, T = total(), L = layout(), nodes = [];
+function scheduleAudio(fromT, dest, ctx = ac()) {
+  const now = ctx.currentTime + (ctx === actx ? 0.06 : 0), T = total(), L = layout(), nodes = [];
   const master = ctx.createGain(); master.connect(dest);
   const mp = masterFadePoints(L); // fades dos clipes com "som junto"
   if (mp.length) envelope(master.gain, mp, fromT, now);
@@ -389,17 +390,23 @@ const isReady = (st) => st && st.v._clipId === st.r.clip.id && !st.v.seeking && 
 const pv = $('#preview'), pctx = pv.getContext('2d');
 function render(ctx, W, H, t, st, pre = false) {
   if (!isReady(st)) return false; // mantém o último quadro enquanto carrega
+  renderFrame(ctx, W, H, t, st.r, st.v, pre);
+  return true;
+}
+function renderFrame(ctx, W, H, t, r, v, pre = false) {
   ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
-  const v = st.v, vw = v.videoWidth, vh = v.videoHeight;
+  const vw = v.videoWidth, vh = v.videoHeight;
   if (vw && vh) {
-    const k = Math.min(W / vw, H / vh) * zoomAt(t, st.r), w = vw * k, h = vh * k;
-    ctx.drawImage(v, (W - w) / 2, (H - h) / 2, w, h);
+    const k = Math.min(W / vw, H / vh) * zoomAt(t, r), w = vw * k, h = vh * k, x = (W - w) / 2, y = (H - h) / 2;
+    // ajuste de cor só deste clipe
+    if (!hasColor(r.clip.color) || !colorPass(ctx, W, H, v, x, y, w, h, r.clip.color)) ctx.drawImage(v, x, y, w, h);
   }
   drawLayers(ctx, W, H, t, pre); // camadas: acima do vídeo, abaixo da legenda
-  const cap = captionAt(t, st.r);
+  // camadas de ajuste: acima do vídeo e das camadas, abaixo da legenda
+  for (const L of S.layers) if (L.kind === 'adjust' && t >= L.start && t < L.start + L.out - L.in && hasColor(L.color)) colorPass(ctx, W, H, ctx.canvas, 0, 0, W, H, L.color);
+  const cap = captionAt(t, r);
   if (cap && cap.text.trim()) drawCaption(ctx, W, H, cap.text);
   overlays(ctx, W, H, t);
-  return true;
 }
 function overlays(ctx, W, H, t) {
   const T = total(), fx = S.fx;
@@ -510,9 +517,9 @@ function loop() {
     actx.resume(); if (E.rec && E.rec.state === 'paused') E.rec.resume();
   }
   S.t = t;
-  render(pctx, pv.width, pv.height, t, st, true);
+  if (!E.exporting) render(pctx, pv.width, pv.height, t, st, true);
   if (E.exporting) {
-    render(E.exp.cx, E.exp.W, E.exp.H, t, st);
+    if (render(E.exp.cx, E.exp.W, E.exp.H, t, st) && (E.exp.n = (E.exp.n || 0) + 1) % 6 === 0) pctx.drawImage(E.exp.cv, 0, 0, pv.width, pv.height);
     const pct = Math.round(100 * t / T); const bar = $('#exp-bar'); if (bar) bar.style.width = pct + '%';
     const lab = $('#exp-st'); if (lab) lab.textContent = `Exportando… ${pct}%`;
   } else { followScroll(); updTime(); }
@@ -540,10 +547,10 @@ function renderTimeline() {
   const ll = layerLanes(); tl.style.height = (ll.count * 40) + 'px'; tl.style.marginTop = ll.count ? '4px' : '0';
   for (const L of S.layers) {
     const el = document.createElement('div');
-    el.className = 'lay' + (S.sel?.type === 'layer' && S.sel.id === L.id ? ' sel' : '');
+    el.className = 'lay' + (L.kind === 'adjust' ? ' adj' : '') + (S.sel?.type === 'layer' && S.sel.id === L.id ? ' sel' : '');
     el.style.left = (h + L.start * pps) + 'px'; el.style.width = Math.max(3, (L.out - L.in) * pps - 2) + 'px'; el.style.top = (ll.map.get(L.id) * 40) + 'px';
     const th = L.kind === 'image' ? images.get(L.srcId)?.url : media.get(L.srcId)?.thumb; if (th) el.style.backgroundImage = `url(${th})`;
-    el.innerHTML = `<span class="nm">${L.kind === 'image' ? '🖼' : '🎬'} Camada</span>`;
+    el.innerHTML = L.kind === 'adjust' ? '<span class="nm">🎨 Ajuste</span>' : `<span class="nm">${L.kind === 'image' ? '🖼' : '🎬'} Camada</span>`;
     el.onclick = (e) => { e.stopPropagation(); select('layer', L.id); };
     tl.appendChild(el);
   }
@@ -661,7 +668,7 @@ function renderToolbar() {
       ['left', 'Mover', () => moveClip(sel.id, -1)], ['right', 'Mover', () => moveClip(sel.id, 1)],
       ['trimL', 'Aparar início', () => trimClip(sel.id, 'start')], ['trimR', 'Aparar fim', () => trimClip(sel.id, 'end')],
       ['fade', 'Fade', () => openClipFade(sel.id)], ['zoomIn', 'Zoom', () => openZoomSheet(sel.id)],
-      ['zap', 'Transições', () => openTransitionFor(sel.id)], ['volume', 'Som', openAudioHub],
+      ['zap', 'Transições', () => openTransitionFor(sel.id)], ['contrast', 'Ajustes', () => openColor('clip', sel.id)], ['volume', 'Som', openAudioHub],
       ['x', 'Fechar', () => select(null)],
     ];
   } else if (sel?.type === 'clipaudio') {
@@ -679,7 +686,7 @@ function renderToolbar() {
     ];
   } else if (sel?.type === 'layer') {
     items = [
-      ['sliders', 'Ajustar', () => openLayerSheet(sel.id)], ['target', 'Início aqui', () => { const L = S.layers.find((x) => x.id === sel.id); commit(); L.start = S.t; refresh(); }],
+      S.layers.find((x) => x.id === sel.id)?.kind === 'adjust' ? ['contrast', 'Ajustes', () => openColor('layer', sel.id)] : ['sliders', 'Ajustar', () => openLayerSheet(sel.id)], ['target', 'Início aqui', () => { const L = S.layers.find((x) => x.id === sel.id); commit(); L.start = S.t; refresh(); }],
       ['trimL', 'Aparar início', () => trimLayer(sel.id, 'start')], ['trimR', 'Aparar fim', () => trimLayer(sel.id, 'end')],
       ['trash', 'Apagar', () => { commit(); S.layers = S.layers.filter((x) => x.id !== sel.id); S.sel = null; refresh(); }, 'danger'],
       ['x', 'Fechar', () => select(null)],
@@ -694,6 +701,7 @@ function renderToolbar() {
     items = [
       ['plus', 'Novo', () => $('#file-video').click()], ['music', 'Áudio', openAudioHub],
       ['type', 'Legenda', () => openCaptions()], ['layers', 'Camada', () => $('#file-layer').click()],
+      ['contrast', 'Ajustes', addAdjustLayer],
     ];
   }
   tb.innerHTML = '';
@@ -1267,6 +1275,7 @@ function syncLayers(t) {
     const v = layerVideo(L); if (!v) continue;
     const len = L.out - L.in, active = t >= L.start && t < L.start + len, s = L.in + clamp(t - L.start, 0, Math.max(0, len - 0.02));
     if (active && E.playing && !E.stalled) {
+      if (v.playbackRate !== (E.rate || 1)) v.playbackRate = E.rate || 1;
       if (v.paused) v.play().catch(() => {});
       if (!v.seeking && Math.abs(v.currentTime - s) > 0.25) v.currentTime = s;
     } else {
@@ -1282,6 +1291,7 @@ function drawLayers(ctx, W, H, t, pre) {
   for (const L of S.layers) {
     const len = L.out - L.in; if (t < L.start || t >= L.start + len) continue;
     let src, sw, sh;
+    if (L.kind === 'adjust') continue;
     if (L.kind === 'image') { const im = images.get(L.srcId); if (!im) continue; src = im.img; sw = im.w; sh = im.h; }
     else { const v = layerEls.get(L.id); if (!v || v.readyState < 2) continue; src = v; sw = v.videoWidth; sh = v.videoHeight; }
     if (!sw || !sh) continue;
@@ -1664,6 +1674,242 @@ async function transcribeAll(st) {
   refresh(); saveSoon();
 }
 
+// ---------- Ajuste de cor (brilho, contraste, saturação, matiz verde↔roxo) via WebGL ----------
+function hasColor(c) { return !!c && !!(c.b || c.c || c.s || c.h); }
+var glPool = new Map();
+const VS = 'attribute vec2 p;uniform vec4 rect;varying vec2 uv;void main(){uv=p;vec2 q=rect.xy+p*rect.zw;gl_Position=vec4(q.x*2.0-1.0,1.0-q.y*2.0,0.0,1.0);}';
+const FS = `precision mediump float;varying vec2 uv;uniform sampler2D tex;uniform vec4 adj;
+void main(){
+  vec3 c=texture2D(tex,uv).rgb;
+  c=pow(max(c,vec3(0.0)),vec3(exp2(-adj.x*0.9)));
+  float k=adj.y>=0.0?1.0+adj.y:1.0+adj.y*0.75;
+  c=(c-0.5)*k+0.5;
+  float l=dot(c,vec3(0.2126,0.7152,0.0722));
+  c=mix(vec3(l),c,1.0+adj.z);
+  c+=adj.w*vec3(0.08,-0.12,0.11);
+  gl_FragColor=vec4(clamp(c,0.0,1.0),1.0);
+}`;
+function glFor(W, H) {
+  const key = W + 'x' + H;
+  if (glPool.has(key)) return glPool.get(key);
+  let g = null;
+  try {
+    const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+    const gl = cv.getContext('webgl', { alpha: false, premultipliedAlpha: false, preserveDrawingBuffer: true, antialias: false });
+    if (gl) {
+      const sh = (type, src) => { const o = gl.createShader(type); gl.shaderSource(o, src); gl.compileShader(o); if (!gl.getShaderParameter(o, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(o)); return o; };
+      const pr = gl.createProgram(); gl.attachShader(pr, sh(gl.VERTEX_SHADER, VS)); gl.attachShader(pr, sh(gl.FRAGMENT_SHADER, FS)); gl.linkProgram(pr);
+      if (!gl.getProgramParameter(pr, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(pr));
+      gl.useProgram(pr);
+      const buf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buf); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]), gl.STATIC_DRAW);
+      const ap = gl.getAttribLocation(pr, 'p'); gl.enableVertexAttribArray(ap); gl.vertexAttribPointer(ap, 2, gl.FLOAT, false, 0, 0);
+      const tex = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, tex);
+      [[gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]].forEach(([a, b]) => gl.texParameteri(gl.TEXTURE_2D, a, b));
+      g = { gl, cv, uRect: gl.getUniformLocation(pr, 'rect'), uAdj: gl.getUniformLocation(pr, 'adj') };
+    }
+  } catch (e) { console.warn('ajuste de cor indisponível', e); g = null; }
+  if (glPool.size >= 3) glPool.clear();
+  glPool.set(key, g);
+  return g;
+}
+// desenha `src` (vídeo ou o próprio canvas) no retângulo x,y,w,h com a cor ajustada; substitui o canvas inteiro
+function colorPass(ctx, W, H, src, x, y, w, h, col) {
+  const g = glFor(W, H); if (!g) return false;
+  const { gl, cv } = g;
+  try {
+    gl.viewport(0, 0, W, H); gl.clearColor(0, 0, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, src);
+    gl.uniform4f(g.uRect, x / W, y / H, w / W, h / H);
+    gl.uniform4f(g.uAdj, (col.b || 0) / 100, (col.c || 0) / 100, (col.s || 0) / 100, (col.h || 0) / 100);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    ctx.drawImage(cv, 0, 0, W, H);
+    return true;
+  } catch (e) { console.warn(e); return false; }
+}
+function addAdjustLayer() {
+  if (!S.clips.length) return toast('Adicione um vídeo primeiro');
+  const T = total(), start = S.t >= T - 0.3 ? 0 : S.t;
+  commit();
+  const L = { id: uid(), kind: 'adjust', name: 'Ajuste', start, in: 0, out: Math.max(0.5, T - start), color: { b: 0, c: 0, s: 0, h: 0 } };
+  S.layers.push(L); S.sel = { type: 'layer', id: L.id }; refresh();
+  openColor('layer', L.id);
+}
+function openColor(kind, id) {
+  const tg = kind === 'clip' ? S.clips.find((c) => c.id === id) : S.layers.find((l) => l.id === id);
+  if (!tg) return;
+  if (!tg.color) tg.color = { b: 0, c: 0, s: 0, h: 0 };
+  const col = tg.color, sg = (v) => (v > 0 ? '+' : '') + Math.round(v);
+  const tint = (v) => (v < 0 ? 'verde ' : v > 0 ? 'roxo ' : '') + sg(v);
+  openSheet('color', kind === 'clip' ? 'Ajustes do clipe' : 'Camada de ajuste', `
+    ${rangeRow('cb', 'Brilho', -100, 100, 1, col.b || 0, sg)}
+    ${rangeRow('cc', 'Contraste', -100, 100, 1, col.c || 0, sg)}
+    ${rangeRow('cs', 'Saturação', -100, 100, 1, col.s || 0, sg)}
+    ${rangeRow('ch', 'Matiz', -100, 100, 1, col.h || 0, tint)}
+    <div class="tintbar"><span>verde</span><span>roxo</span></div>
+    <div class="chips"><button class="chip" id="c-reset">Zerar ajustes</button></div>
+    <p class="note">${kind === 'clip' ? 'Vale só para este clipe.' : 'Vale para tudo abaixo dela (vídeo e camadas), no trecho que ela ocupa na linha do tempo. A legenda não muda.'}</p>`,
+  (b) => {
+    bindRanges(b, {
+      cb: { set: (v) => (col.b = v), fmt: sg }, cc: { set: (v) => (col.c = v), fmt: sg },
+      cs: { set: (v) => (col.s = v), fmt: sg }, ch: { set: (v) => (col.h = v), fmt: tint },
+    });
+    $('#c-reset', b).onclick = () => { commit(); Object.assign(col, { b: 0, c: 0, s: 0, h: 0 }); refresh(); openColor(kind, id); };
+  });
+}
+
+// ---------- Exportação quadro a quadro (WebCodecs): sem travadas, mesmo se o aparelho for lento ----------
+let muxP = null;
+function loadMuxer() {
+  return muxP || (muxP = new Promise((res, rej) => {
+    if (window.Mp4Muxer) return res(window.Mp4Muxer);
+    const s = document.createElement('script'); s.src = 'vendor/mp4-muxer.min.js';
+    s.onload = () => res(window.Mp4Muxer); s.onerror = () => { muxP = null; rej(new Error('não carregou o gravador MP4')); };
+    document.head.appendChild(s);
+  }));
+}
+async function pickCodecs(W, H, vbr) {
+  if (!window.VideoEncoder || !window.AudioEncoder || !window.VideoFrame || !window.AudioData || !('requestVideoFrameCallback' in HTMLVideoElement.prototype)) return null;
+  const big = W * H > 1920 * 1088;
+  const vlist = big ? ['avc1.640033', 'avc1.4d0033', 'avc1.420033', 'avc1.640034'] : ['avc1.640028', 'avc1.4d0028', 'avc1.42002a', 'avc1.640033'];
+  let vcfg = null;
+  for (const codec of vlist) {
+    const c = { codec, width: W, height: H, bitrate: vbr, framerate: 30, avc: { format: 'avc' } };
+    try { if ((await VideoEncoder.isConfigSupported(c)).supported) { vcfg = c; break; } } catch {}
+  }
+  if (!vcfg) return null;
+  const acfg = { codec: 'mp4a.40.2', sampleRate: 48000, numberOfChannels: 2, bitrate: 192000 };
+  try { if (!(await AudioEncoder.isConfigSupported(acfg)).supported) return null; } catch { return null; }
+  return { vcfg, acfg };
+}
+async function renderMixdown(T, sr) {
+  ac(); await actx.resume().catch(() => {});
+  // garante que os sons das transições já estão carregados
+  for (let k = 0; k < 40 && cuts().some((c) => !transSound(c.type)); k++) await new Promise((r) => setTimeout(r, 50));
+  const off = new OfflineAudioContext(2, Math.max(1, Math.ceil(T * sr)), sr);
+  scheduleAudio(0, off.destination, off);
+  return off.startRendering();
+}
+async function exportFrames(res, codecs) {
+  const FPS = 30, T = total(), [W, H] = outSize(res), ex = E.exp;
+  const Mux = await loadMuxer();
+  const target = new Mux.ArrayBufferTarget();
+  const muxer = new Mux.Muxer({ target, fastStart: 'in-memory', firstTimestampBehavior: 'offset',
+    video: { codec: 'avc', width: W, height: H, frameRate: FPS }, audio: { codec: 'aac', numberOfChannels: 2, sampleRate: 48000 } });
+  let encErr = null;
+  const venc = new VideoEncoder({ output: (c, m) => muxer.addVideoChunk(c, m), error: (e) => (encErr = e) });
+  venc.configure(codecs.vcfg);
+  const aenc = new AudioEncoder({ output: (c, m) => muxer.addAudioChunk(c, m), error: (e) => (encErr = e) });
+  aenc.configure(codecs.acfg);
+
+  // 1) áudio: mixagem completa fora do tempo real
+  $('#exp-st').textContent = 'Preparando o áudio…';
+  const mix = await renderMixdown(T, 48000);
+  const L0 = mix.getChannelData(0), R0 = mix.getChannelData(1), N = mix.length, CH = 4800;
+  for (let i = 0; i < N; i += CH) {
+    const n = Math.min(CH, N - i), data = new Float32Array(n * 2);
+    data.set(L0.subarray(i, i + n), 0); data.set(R0.subarray(i, i + n), n);
+    const ad = new AudioData({ format: 'f32-planar', sampleRate: 48000, numberOfFrames: n, numberOfChannels: 2, timestamp: Math.round(i / 48000 * 1e6), data });
+    aenc.encode(ad); ad.close();
+  }
+
+  // 2) vídeo: cada quadro do clipe é desenhado e gravado com o tempo exato
+  const cv = ex.cv, cx = ex.cx, L = layout(), total_frames = Math.max(1, Math.round(T * FPS));
+  let k = 0, rate = 1, dupHits = 0, seekMode = false;
+  const seekVid = (v, s) => new Promise((ok) => {
+    if (Math.abs(v.currentTime - s) < 0.001 && !v.seeking) return ok();
+    const to = setTimeout(fin, 4000);
+    function fin() { clearTimeout(to); v.removeEventListener('seeked', fin); ok(); }
+    v.addEventListener('seeked', fin); v.currentTime = s;
+  });
+  E.rate = 1;
+  const progress = () => {
+    const pct = Math.min(99, Math.round(100 * k / total_frames)); const bar = $('#exp-bar'); if (bar) bar.style.width = pct + '%';
+    const lab = $('#exp-st'); if (lab) lab.textContent = `Exportando… ${pct}%`;
+  };
+  const emitUpTo = async (tl, r, v) => {
+    // grava todos os quadros da grade de 30 fps até o tempo tl, usando o quadro atual do vídeo
+    let n = 0;
+    while (k < total_frames && k / FPS <= tl + 1e-4) {
+      const t = k / FPS; S.t = t; syncLayers(t);
+      renderFrame(cx, W, H, t, r, v);
+      const fr = new VideoFrame(cv, { timestamp: Math.round(t * 1e6), duration: Math.round(1e6 / FPS) });
+      venc.encode(fr, { keyFrame: k % (FPS * 2) === 0 }); fr.close();
+      if (k % 6 === 0) { pctx.drawImage(cv, 0, 0, pv.width, pv.height); progress(); }
+      k++; n++;
+    }
+    return n;
+  };
+  const drain = async () => { while (venc.encodeQueueSize > 3 || aenc.encodeQueueSize > 20) await new Promise((r) => setTimeout(r, 8)); };
+  pool.forEach((v) => { v.pause(); v._clipId = null; }); activeV = null;
+
+  for (let ci = 0; ci < L.length && !ex.cancelled; ci++) {
+    const r = L[ci], c = r.clip;
+    let v = pool.find((x) => x._clipId === c.id) || pool.find((x) => x !== activeV) || pool[0];
+    if (v._clipId !== c.id) assign(v, c, c.in);
+    activeV = v; v.pause(); v.playbackRate = 1;
+    // posiciona no início do clipe e espera o quadro
+    if (Math.abs(v.currentTime - c.in) > 0.001 && v._pending == null) v.currentTime = c.in;
+    for (let w = 0; w < 200 && (v.seeking || v._pending != null || v.readyState < 2); w++) await new Promise((res2) => setTimeout(res2, 25));
+    await new Promise((res2) => setTimeout(res2, 30));
+    // pré-carrega o próximo clipe no outro player
+    const nr = L[ci + 1], other = pool.find((x) => x !== v);
+    if (nr) { other.pause(); assign(other, nr.clip, nr.clip.in); }
+    await emitUpTo(r.start, r, v);
+
+    // toca e captura cada quadro novo
+    if (!seekMode) await new Promise((done) => {
+      let finished = false, lastCb = performance.now(), busy = false;
+      const end = () => { if (finished) return; finished = true; clearInterval(watch); v.pause(); done(); };
+      const onFrame = async (now, meta) => {
+        if (finished) return;
+        lastCb = performance.now();
+        const mt = meta.mediaTime, tl = Math.min(r.end, r.start + Math.max(0, mt - c.in));
+        if (busy) { v.requestVideoFrameCallback(onFrame); return; }
+        busy = true;
+        const before = k;
+        if (mt >= c.in - 0.02) await emitUpTo(Math.min(tl, r.end - 1e-3), r, v);
+        // se pulou quadros da grade, diminui a velocidade da captura (fica mais lenta, mas sem travadas)
+        if (k - before > 1 && rate > 0.3) { if (++dupHits >= 2) { rate = Math.max(0.25, rate * 0.7); v.playbackRate = rate; E.rate = rate; dupHits = 0; } }
+        if (venc.encodeQueueSize > 3) { v.pause(); await drain(); if (!finished) v.play().catch(() => {}); }
+        busy = false;
+        if (encErr || ex.cancelled || mt >= c.out - 0.5 / FPS || k / FPS >= r.end - 1e-3) return end();
+        v.requestVideoFrameCallback(onFrame);
+      };
+      v.requestVideoFrameCallback(onFrame);
+      v.onended = end;
+      const watch = setInterval(() => {
+        if (finished) return;
+        if (ex.cancelled || encErr) return end();
+        if (v.currentTime >= c.out - 0.01) return end();
+        // o navegador não está entregando quadros (aba em segundo plano, economia de energia…): passa para o modo quadro a quadro
+        if (performance.now() - lastCb > 1200 && !busy) { seekMode = true; return end(); }
+      }, 300);
+      E.playing = true; E.stalled = false;
+      v.playbackRate = rate; v.play().catch(() => {});
+    });
+    v.onended = null;
+    if (encErr) throw encErr;
+    if (seekMode) {
+      v.pause(); E.stalled = true;
+      while (k < total_frames && k / FPS < r.end - 1e-3 && !ex.cancelled && !encErr) {
+        const t = k / FPS;
+        await seekVid(v, Math.min(c.out - 0.001, Math.max(c.in, c.in + (t - r.start))));
+        await emitUpTo(t, r, v); await drain();
+      }
+      E.stalled = false;
+    }
+    await emitUpTo(r.end - 1e-3, r, v); // completa o fim do clipe se faltou algum quadro
+    await drain();
+  }
+  E.rate = 1; pool.forEach((v) => { v.pause(); v.playbackRate = 1; });
+  for (const [, lv] of layerEls) { lv.pause(); lv.playbackRate = 1; }
+  if (ex.cancelled) { try { venc.close(); aenc.close(); } catch {} return null; }
+  if (k < total_frames) { const lr = L[L.length - 1]; await emitUpTo(T, lr, activeV); }
+  await venc.flush(); await aenc.flush(); muxer.finalize();
+  venc.close(); aenc.close();
+  return new Blob([target.buffer], { type: 'video/mp4' });
+}
+
 // ---------- Exportação ----------
 function pickMime() {
   const opts = ['video/mp4;codecs=avc1.640028,mp4a.40.2', 'video/mp4;codecs=avc1,mp4a.40.2', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm'];
@@ -1679,7 +1925,7 @@ function openExport() {
       <button class="chip ${res === '1080' ? 'on' : ''}" data-res="1080">Full HD (1080p)</button>
       <button class="chip ${res === '4k' ? 'on' : ''}" data-res="4k">4K</button>
     </div>
-    <p class="note">Duração: ${fmt(total())}. A exportação leva o mesmo tempo do vídeo. Deixe o app aberto e a tela ligada até terminar.</p>
+    <p class="note">Duração: ${fmt(total())}. Deixe o app aberto e a tela ligada até terminar. Se o aparelho estiver lento, a exportação demora um pouco mais, mas o vídeo sai liso.</p>
     <button class="btn primary" id="exp-go">Exportar vídeo</button>
     <div id="exp-run" style="display:none">
       <div class="progress"><div id="exp-bar"></div></div><p class="note" id="exp-st"></p>
@@ -1703,6 +1949,22 @@ async function startExport(res) {
   const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
   const cx = cv.getContext('2d'); cx.fillStyle = '#000'; cx.fillRect(0, 0, W, H);
   ac(); await actx.resume();
+  const codecs = await pickCodecs(W, H, res === '4k' ? 35_000_000 : 12_000_000);
+  if (codecs) {
+    const ex = { cv, cx, W, H, mime: 'video/mp4', res, cancelled: false, frames: true };
+    E.exporting = true; E.exp = ex; E.playing = true; E.stalled = false; updPlay();
+    try { E.wake = await navigator.wakeLock?.request('screen'); } catch {}
+    let blob = null, err = null;
+    try { blob = await exportFrames(res, codecs); } catch (e) { err = e; console.error('exportação', e); }
+    E.playing = false; E.exporting = false; E.exp = null; E.rate = 1; updPlay();
+    try { E.wake?.release(); } catch {}
+    if (ex.cancelled || !blob) {
+      $('#exp-go') && ($('#exp-go').style.display = 'block'); $('#exp-run') && ($('#exp-run').style.display = 'none');
+      if (err) toast('Não consegui exportar: ' + (err.message || err), 4000);
+      draw(); return;
+    }
+    exportReady(blob, 'video/mp4'); draw(); return;
+  }
   const dest = actx.createMediaStreamDestination();
   const stream = new MediaStream([...cv.captureStream(30).getVideoTracks(), ...dest.stream.getAudioTracks()]);
   const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: res === '4k' ? 40_000_000 : 14_000_000, audioBitsPerSecond: 192_000 });
@@ -1727,17 +1989,20 @@ function finishExport() {
       E.exporting = false; E.exp = null; E.rec = null; updPlay();
       try { E.wake?.release(); } catch {}
       if (ex.cancelled) { $('#exp-go') && ($('#exp-go').style.display = 'block'); $('#exp-run') && ($('#exp-run').style.display = 'none'); return; }
-      const type = ex.mime.split(';')[0], ext = type.includes('mp4') ? 'mp4' : 'webm';
-      const blob = new Blob(ex.chunks, { type });
-      if (lastExport) URL.revokeObjectURL(lastExport.url);
-      lastExport = { blob, url: URL.createObjectURL(blob), name: `corte-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}.${ext}`, type };
-      if (sheetKind === 'export') { $('#exp-run').style.display = 'none'; $('#exp-go').style.display = 'block'; showExportResult(lastExport); }
-      toast('Vídeo exportado!');
+      const type = ex.mime.split(';')[0];
+      exportReady(new Blob(ex.chunks, { type }), type);
     };
     ex.rec.stop();
   }, 200);
 }
-function cancelExport() { if (!E.exp) return; E.exp.cancelled = true; finishExport(); }
+function cancelExport() { if (!E.exp) return; E.exp.cancelled = true; if (!E.exp.frames) finishExport(); }
+function exportReady(blob, type) {
+  const ext = type.includes('mp4') ? 'mp4' : 'webm';
+  if (lastExport) URL.revokeObjectURL(lastExport.url);
+  lastExport = { blob, url: URL.createObjectURL(blob), name: `corte-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}.${ext}`, type };
+  if (sheetKind === 'export') { $('#exp-run').style.display = 'none'; $('#exp-go').style.display = 'block'; showExportResult(lastExport); }
+  toast('Vídeo exportado!');
+}
 function showExportResult(x) {
   const box = $('#exp-done'); if (!box) return;
   const mb = (x.blob.size / 1048576).toFixed(1);
@@ -1798,7 +2063,7 @@ async function restoreProject() {
     if (S.fx.fadeOut?.on && S.clips.length) { const lc = S.clips[S.clips.length - 1]; lc.vfo = S.fx.fadeOut.dur; lc.vfa = S.fx.fadeAudio !== false; }
     S.fx.fadeIn.on = false; S.fx.fadeOut.on = false;
     for (const im of p.images || []) { const file = await dbGet('file:' + im.id); if (file) { try { images.set(im.id, await loadImage(file, im.id)); } catch {} } }
-    S.layers = S.layers.filter((l) => (l.kind === 'image' ? images.has(l.srcId) : media.has(l.srcId)));
+    S.layers = S.layers.filter((l) => (l.kind === 'adjust' ? true : l.kind === 'image' ? images.has(l.srcId) : media.has(l.srcId)));
     S.clips = S.clips.filter((c) => media.has(c.mediaId));
     S.audios = S.audios.filter((a) => buffers.has(a.bufferId));
     S.words = p.words || {}; S.aspect = p.aspect; S.t = clamp(p.t || 0, 0, total());

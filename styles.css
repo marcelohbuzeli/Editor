@@ -167,3 +167,5 @@ video.result { width: 100%; max-height: 30dvh; border-radius: 10px; background: 
 .trim .tph { position: absolute; top: 0; bottom: 0; width: 2px; background: #fff; display: none; pointer-events: none; z-index: 1; }
 .trim-info { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 10px 14px 0; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .trim-info .chip { padding: 6px 10px; font-size: 12px; }
+.lay.adj { background: linear-gradient(90deg, #1f6f6a, #5a3f8f); }
+.tintbar { display: flex; justify-content: space-between; margin: -8px 60px 10px 110px; height: 6px; border-radius: 3px; background: linear-gradient(90deg, #3fae5a, #777 50%, #9b4fd1); font-size: 0; }
