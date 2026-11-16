@@ -332,3 +332,10 @@ body.sheet-open #btn-kf.ready { background: var(--accent); border-color: var(--a
 .tx-in { width: 100%; box-sizing: border-box; background: var(--glass-2); color: var(--ink); border: 1px solid var(--line); border-radius: var(--r-xs); padding: 10px 12px; font: inherit; font-size: 16px; resize: vertical; min-height: 56px; margin-bottom: 6px; }
 .tx-in:focus { outline: none; border-color: var(--accent); }
 .ft-name { flex: 1; min-width: 0; text-align: left; background: var(--glass-2); color: var(--ink); border: 1px solid var(--line); border-radius: var(--r-xs); padding: 10px 12px; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ---------- Modelos de texto ---------- */
+.tpl-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 6px 0 10px; }
+.tpl-card { display: flex; flex-direction: column; gap: 5px; padding: 5px; border-radius: var(--r-xs); background: var(--glass); border: 1.5px solid var(--line); color: var(--ink-2); font: 600 12px var(--font); cursor: pointer; }
+.tpl-card canvas { width: 100%; aspect-ratio: 16 / 10; border-radius: 8px; display: block; }
+.tpl-card.on { border-color: var(--accent); color: var(--ink); box-shadow: 0 0 0 3px var(--glow); }
+.tpl-card:active { transform: scale(.97); }

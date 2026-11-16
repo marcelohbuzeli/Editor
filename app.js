@@ -1,6 +1,8 @@
 // Meu Editor — editor de vídeo simples para iPhone (PWA)
 // Tudo roda no aparelho: nada é enviado para servidores (exceto se usar a transcrição via Groq).
 
+import { TEMPLATES, LAYOUTS, tplById, layoutById, parseMarked, stripMarks, drawCapTpl, drawLayout, drawPreview, loadTemplateFonts } from './estilos.js?v=19';
+
 const $ = (s, el = document) => el.querySelector(s);
 const uid = () => Math.random().toString(36).slice(2, 10);
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -93,7 +95,7 @@ const buffers = new Map();  // id -> { buffer, peaks, name, fileKey }
 
 function loadPrefs() { try { return JSON.parse(localStorage.getItem('corte-prefs') || '{}'); } catch { return {}; } }
 function savePrefs() {
-  try { localStorage.setItem('corte-prefs', JSON.stringify({ v: 3, cap: S.cap, fx: S.fx, groqKey: prefs.groqKey, res: prefs.res, zoomDef: prefs.zoomDef, fadeDef: prefs.fadeDef, sfxTrim: prefs.sfxTrim })); } catch {}
+  try { localStorage.setItem('corte-prefs', JSON.stringify({ v: 3, cap: S.cap, fx: S.fx, groqKey: prefs.groqKey, res: prefs.res, zoomDef: prefs.zoomDef, fadeDef: prefs.fadeDef, sfxTrim: prefs.sfxTrim, textTpl: prefs.textTpl })); } catch {}
 }
 
 // ---------- Histórico (desfazer/refazer) ----------
@@ -400,7 +402,9 @@ function render(ctx, W, H, t, st, pre = false) {
   renderFrame(ctx, W, H, t, st.r, st.v, pre);
   return true;
 }
+let stillPreview = false; // prévia parada: textos de modelo aparecem completos para editar
 function renderFrame(ctx, W, H, t, r, v, pre = false) {
+  stillPreview = pre && !E.playing;
   ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
   const vw = v.videoWidth, vh = v.videoHeight;
   if (vw && vh) {
@@ -472,6 +476,15 @@ function wrapLines(ctx, text, maxW) {
   }
   return out;
 }
+// Instante em que cada palavra do bloco é falada (tempo no arquivo de origem).
+// Usa os tempos da transcrição quando o número de palavras bate; senão distribui no bloco.
+function capTimes(cap, n) {
+  if (!cap || !n) return [];
+  const ws = (S.words[cap.mediaId] || []).filter((w) => w.start >= cap.start - 0.05 && w.start < cap.end - 0.01);
+  if (ws.length === n) return ws.map((w) => Math.max(cap.start, w.start));
+  const span = Math.max(0.2, Math.min(cap.end - cap.start, n * 0.45));
+  return Array.from({ length: n }, (_, i) => cap.start + (span * i) / n);
+}
 function drawCaption(ctx, W, H, text, cap, s) {
   const c = S.cap, k = Math.min(W, H) / 1080, fs = c.size * k;
   // keyframes do bloco de legenda (posição, escala, rotação, opacidade)
@@ -480,6 +493,14 @@ function drawCaption(ctx, W, H, text, cap, s) {
   const sc = cap ? kfVal(cap, 'scale', s, cap.sc ?? 1) : 1, rot = cap ? kfVal(cap, 'rot', s, cap.rot ?? 0) : 0;
   ctx.save();
   ctx.globalAlpha = op; ctx.translate(px * W, py * H); if (rot) ctx.rotate(rot * Math.PI / 180); if (sc !== 1) ctx.scale(sc, sc);
+  const tpl = tplById(c.tpl);
+  if (tpl) {
+    // modelo de legenda: palavra por palavra, com a combinação de fontes nos destaques (*palavra*)
+    const toks = parseMarked(text);
+    drawCapTpl(ctx, W, tpl, toks, capTimes(cap, toks.length), stillPreview ? 1e9 : (s ?? 1e9), fs, c.upper);
+    ctx.restore(); return;
+  }
+  text = stripMarks(text);
   ctx.font = `${c.weight} ${fs}px ${fontCss(c.font)}`;
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   const lines = wrapLines(ctx, c.upper ? text.toUpperCase() : text, W * 0.86);
@@ -579,7 +600,7 @@ function renderTimeline() {
     el.className = 'lay' + (L.kind === 'adjust' ? ' adj' : L.kind === 'text' ? ' txt' : '') + (S.sel?.type === 'layer' && S.sel.id === L.id ? ' sel' : '');
     el.style.left = (h + L.start * pps) + 'px'; el.style.width = Math.max(3, (L.out - L.in) * pps - 2) + 'px'; el.style.top = (ll.map.get(L.id) * 40) + 'px';
     const th = L.kind === 'image' ? images.get(L.srcId)?.url : media.get(L.srcId)?.thumb; if (th) el.style.backgroundImage = `url(${th})`;
-    el.innerHTML = (L.kind === 'adjust' ? '<span class="nm">Ajuste</span>' : L.kind === 'text' ? `<span class="nm">Texto</span><span class="tx">${esc(L.text || '')}</span>` : `<span class="nm">${L.kind === 'image' ? 'Imagem' : 'Vídeo'}</span>`) + kfMarks(L, L.in, L.out, pps);
+    el.innerHTML = (L.kind === 'adjust' ? '<span class="nm">Ajuste</span>' : L.kind === 'text' ? `<span class="nm">${L.layout ? 'Modelo' : 'Texto'}</span><span class="tx">${esc(stripMarks(L.text))}</span>` : `<span class="nm">${L.kind === 'image' ? 'Imagem' : 'Vídeo'}</span>`) + kfMarks(L, L.in, L.out, pps);
     el.onclick = (e) => { e.stopPropagation(); if (el._dragged) { el._dragged = false; return; } select('layer', L.id); };
     if (S.sel?.type === 'layer' && S.sel.id === L.id) addHandles(el);
     bindDrag(el, 'layer', L.id, spanOps(el, L, h, { free: L.kind !== 'video', maxOut: L.kind === 'video' ? (media.get(L.srcId)?.duration ?? Infinity) : Infinity }));
@@ -644,7 +665,7 @@ function renderTimeline() {
     const el = document.createElement('div');
     el.className = 'capb' + (S.sel?.type === 'caption' && S.sel.id === sp.cap.id ? ' sel' : '');
     el.style.left = (h + sp.start * pps) + 'px'; el.style.width = Math.max(3, (sp.end - sp.start) * pps - 1) + 'px';
-    el.textContent = sp.cap.text;
+    el.textContent = stripMarks(sp.cap.text);
     if (anyKf(sp.cap)) el.insertAdjacentHTML('beforeend', kfMarks(sp.cap, sp.a, sp.a + sp.end - sp.start, pps));
     el.onclick = (e) => { e.stopPropagation(); if (el._dragged) return; seekTo(sp.start + 0.01); select('caption', sp.cap.id); };
     if (S.sel?.type === 'caption' && S.sel.id === sp.cap.id) addHandles(el);
@@ -1553,7 +1574,7 @@ const TEXT_BG = [['', 'Nenhum'], ['#000000', 'Preto'], ['#FFFFFF', 'Branco'], ['
 function textMetrics(ctx, W, H, L) {
   const k = Math.min(W, H) / 1080, fs = (L.size || 80) * k;
   ctx.font = `${L.weight || 700} ${fs}px ${fontCss(L.font)}`;
-  const txt = (L.upper ? (L.text || '').toUpperCase() : (L.text || '')).trim() || ' ';
+  const raw = stripMarks(L.text); const txt = (L.upper ? raw.toUpperCase() : raw).trim() || ' ';
   const lines = wrapLines(ctx, txt, W * 0.86);
   const lh = fs * 1.2, w = Math.max(fs * 0.5, ...lines.map((l) => ctx.measureText(l).width));
   return { k, fs, lines, lh, w, h: lines.length * lh };
@@ -1563,6 +1584,18 @@ function drawTextLayer(ctx, W, H, L, t, pre) {
   const sc = kfVal(L, 'scale', s, L.scale ?? 1), lx = kfVal(L, 'x', s, L.x ?? 0.5) * W, ly = kfVal(L, 'y', s, L.y ?? 0.5) * H;
   const rot = kfVal(L, 'rot', s, L.rot ?? 0), op = clamp(kfVal(L, 'op', s, L.op ?? 1), 0, 1);
   ctx.save(); ctx.translate(lx, ly); if (rot) ctx.rotate(rot * Math.PI / 180); if (sc !== 1) ctx.scale(sc, sc);
+  const tpl = L.layout && tplById(L.tpl);
+  if (tpl) {
+    // texto de modelo: layout pronto com as fontes, cores e animação do modelo
+    const len = L.out - L.in, lt = stillPreview ? Math.max(t - L.start, 2) : t - L.start, B = (L.size || 80) * Math.min(W, H) / 1080;
+    ctx.globalAlpha = op * (stillPreview ? 1 : clamp((len - lt) / 0.25, 0, 1));
+    const box = drawLayout(ctx, tpl, L.layout, L.text, lt, B, W * 0.86);
+    const bw = box.w, bh = box.h, seld = pre && S.sel?.type === 'layer' && S.sel.id === L.id && !E.playing && !FSP.on;
+    if (seld) { ctx.globalAlpha = 1; ctx.shadowColor = 'transparent'; ctx.strokeStyle = '#b48cff'; ctx.lineWidth = 2 / sc; ctx.setLineDash([6 / sc, 4 / sc]); ctx.strokeRect(-bw / 2 - 4, -bh / 2 - 4, bw + 8, bh + 8); }
+    ctx.restore();
+    if (pre) layerRects.push({ id: L.id, x: lx - (bw / 2 + 4) * sc, y: ly - (bh / 2 + 4) * sc, w: (bw + 8) * sc, h: (bh + 8) * sc });
+    return;
+  }
   const m = textMetrics(ctx, W, H, L), pad = m.fs * 0.35;
   const bw = m.w + (L.bg ? pad * 2 : 0), bh = m.h + (L.bg ? pad * 1.2 : 0);
   if (op > 0) {
@@ -1594,6 +1627,7 @@ function addTextLayer() {
 function openTextSheet(id, fresh = false) {
   const L = S.layers.find((x) => x.id === id); if (!L || L.kind !== 'text') return;
   const T = kfTarget({ type: 'layer', id });
+  if (L.layout) return openTplTextSheet(L, T, fresh);
   openSheet('layer', 'Texto', `
     <textarea id="tx-text" class="tx-in" rows="2" placeholder="Digite o texto">${esc(L.text)}</textarea>
     <div class="sec">Fonte</div>
@@ -1637,6 +1671,41 @@ function openTextSheet(id, fresh = false) {
     });
     $('#l-kf', b).onclick = openKfSheet;
     loadF();
+  });
+}
+// Painel do texto de modelo: texto, modelo, layout, tamanho, posição e duração
+function openTplTextSheet(L, T, fresh) {
+  openSheet('layer', 'Texto de modelo', `
+    <textarea id="tx-text" class="tx-in" rows="3" placeholder="Digite o texto">${esc(L.text)}</textarea>
+    <p class="note">*asteriscos* = destaque · nova linha = nova linha do título</p>
+    <div class="sec">Modelo</div>
+    <div class="chips">${TEMPLATES.map((t) => `<button class="chip ${L.tpl === t.id ? 'on' : ''}" data-tt="${t.id}">${t.name}</button>`).join('')}</div>
+    <div class="sec">Layout</div>
+    <div class="tpl-grid">${LAYOUTS.map((l) => `<button class="tpl-card ${L.layout === l.id ? 'on' : ''}" data-ll="${l.id}"><canvas data-prev-lay="${l.id}" data-tplid="${L.tpl}"></canvas><span>${l.name}</span></button>`).join('')}</div>
+    ${rangeRow('ts', 'Tamanho', 24, 240, 1, L.size, (v) => v, 80)}
+    ${rangeRow('lx', 'Horizontal', 0, 100, 1, Math.round(kfGet(T, 'x') * 100), pctf)}
+    ${rangeRow('ly', 'Vertical', 0, 100, 1, Math.round(kfGet(T, 'y') * 100), pctf, 40)}
+    ${rangeRow('ld', 'Duração', 0.5, 60, 0.1, L.out - L.in, sec)}
+    <button class="btn" id="l-replay">${inlineIc('zap')} Ver a animação</button>
+    <button class="btn" id="l-kf">${inlineIc('key')} Animar com keyframes</button>`,
+  (b) => {
+    const ta = $('#tx-text', b); let pend = null, tlT = 0;
+    ta.addEventListener('input', () => { if (!pend) pend = snap(); L.text = ta.value; draw(); clearTimeout(tlT); tlT = setTimeout(renderTimeline, 250); });
+    ta.addEventListener('change', () => { if (pend) pushHist(pend); pend = null; renderTimeline(); });
+    if (fresh) setTimeout(() => { ta.focus(); ta.select(); }, 60);
+    b.querySelectorAll('[data-tt]').forEach((el) => el.onclick = () => { commit(); L.tpl = el.dataset.tt; prefs.textTpl = L.tpl; savePrefs(); draw(); openTplTextSheet(L, T); });
+    b.querySelectorAll('[data-ll]').forEach((el) => el.onclick = () => {
+      commit(); const was = layoutById(L.layout); if (!L.text.trim() || L.text === was?.sample) L.text = layoutById(el.dataset.ll).sample;
+      L.layout = el.dataset.ll; draw(); renderTimeline(); openTplTextSheet(L, T);
+    });
+    bindRanges(b, {
+      ts: { set: (v) => (L.size = v), fmt: (v) => v },
+      lx: { set: (v) => kfPut(T, 'x', v / 100), fmt: pctf, after: renderTimeline }, ly: { set: (v) => kfPut(T, 'y', v / 100), fmt: pctf, after: renderTimeline },
+      ld: { set: (v) => (L.out = L.in + v), fmt: sec, after: renderTimeline },
+    });
+    $('#l-replay', b).onclick = () => { seekTo(L.start + 0.001); play(); };
+    $('#l-kf', b).onclick = openKfSheet;
+    paintPreviews(b);
   });
 }
 function layerLanes() {
@@ -2043,18 +2112,103 @@ function openCaptions(tab, focusId) {
     else bindCapGen(b);
   });
 }
+const textTpl = () => tplById(prefs.textTpl) || tplById(S.cap.tpl) || TEMPLATES[0];
+function paintPreviews(b) {
+  loadTemplateFonts().then(() => requestAnimationFrame(() => {
+    b.querySelectorAll('canvas[data-prev-cap]').forEach((cv) => drawPreview(cv, tplById(cv.dataset.prevCap), 'cap'));
+    b.querySelectorAll('canvas[data-prev-lay]').forEach((cv) => drawPreview(cv, tplById(cv.dataset.tplid), 'lay', cv.dataset.prevLay));
+    b.querySelectorAll('canvas[data-prev-plain]').forEach((cv) => {
+      const dpr = window.devicePixelRatio || 1, W = cv.clientWidth || 150, H = cv.clientHeight || 96;
+      cv.width = W * dpr; cv.height = H * dpr; const x = cv.getContext('2d'); x.setTransform(dpr, 0, 0, dpr, 0, 0);
+      x.fillStyle = '#16111f'; x.fillRect(0, 0, W, H); x.font = `700 ${H * 0.13}px ${fontCss('Poppins')}`; x.textAlign = 'center'; x.textBaseline = 'middle';
+      x.shadowColor = 'rgba(0,0,0,.6)'; x.shadowBlur = 6; x.fillStyle = '#fff'; x.fillText('isso vai mudar tudo', W / 2, H / 2);
+    });
+  }));
+}
+function addTemplateText(layoutId, tplId) {
+  if (!S.clips.length) return toast('Adicione um vídeo primeiro');
+  const lay = layoutById(layoutId), tpl = tplById(tplId) || textTpl(); if (!lay) return;
+  const T = total(), start = S.t >= T - 0.3 ? 0 : S.t;
+  commit();
+  const L = { id: uid(), kind: 'text', name: 'Texto', text: lay.sample, start, in: 0, out: Math.max(0.5, Math.min(3, T - start)),
+    x: 0.5, y: 0.4, scale: 1, rot: 0, op: 1, font: S.cap.font, weight: 800, size: 80, color: '#FFFFFF', bg: '', shadow: true, upper: false,
+    tpl: tpl.id, layout: lay.id };
+  S.layers.push(L); S.sel = { type: 'layer', id: L.id }; refresh();
+  loadTemplateFonts().then(draw);
+  openTextSheet(L.id, true);
+}
+// Pontos altos automáticos: pede à Groq (mesma chave da transcrição) as palavras de maior impacto;
+// sem chave ou sem resposta, usa uma regra simples (números, exclamações e palavras longas).
+async function autoHighlight(btn) {
+  const caps = capSpans().map((sp) => sp.cap).filter((c, i, a) => a.indexOf(c) === i && c.text.trim());
+  if (!caps.length) return toast('Gere as legendas primeiro');
+  const old = btn?.innerHTML; if (btn) { btn.disabled = true; btn.textContent = 'Escolhendo os pontos altos…'; }
+  let picks = null;
+  if (prefs.groqKey) { try { picks = await groqHighlights(caps.map((c) => stripMarks(c.text))); } catch (e) { console.warn('destaque via Groq falhou', e); } }
+  if (!picks) picks = heuristicHighlights(caps.map((c) => stripMarks(c.text)));
+  commit();
+  let n = 0;
+  caps.forEach((c, i) => {
+    const plain = stripMarks(c.text), want = picks.get(i);
+    if (!want) return; // sem sugestão: mantém o que já estava (inclusive destaques feitos à mão)
+    const words = plain.split(/\s+/), norm = (w) => w.toLocaleLowerCase('pt-BR').replace(/[^\p{L}\p{N}]/gu, '');
+    const target = want.split(/\s+/).map(norm).filter(Boolean);
+    let at = -1;
+    for (let j = 0; j + target.length <= words.length; j++) if (target.every((t, k) => norm(words[j + k]) === t)) { at = j; break; }
+    if (at < 0) { c.text = plain; return; }
+    words[at] = '*' + words[at]; const e = at + target.length - 1;
+    words[e] = words[e].replace(/([.,!?…:;]*)$/, '*$1');
+    c.text = words.join(' '); n++;
+  });
+  refresh(); saveSoon();
+  if (btn) { btn.disabled = false; btn.innerHTML = old; }
+  toast(n ? `${n} pontos altos destacados` : 'Não encontrei pontos altos');
+}
+function heuristicHighlights(texts) {
+  const out = new Map(); let gap = 3;
+  texts.forEach((t, i) => {
+    gap++; if (gap < 3) return;
+    const ws = t.split(/\s+/).map((w) => w.replace(/[^\p{L}\p{N}%$]/gu, '')).filter(Boolean);
+    const num = ws.find((w) => /\d/.test(w)), long = [...ws].sort((a, b) => b.length - a.length)[0];
+    const pick = num || (/[!?]$/.test(t.trim()) || (long && long.length >= 7) ? long : null);
+    if (pick) { out.set(i, pick); gap = 0; }
+  });
+  return out;
+}
+async function groqHighlights(texts) {
+  const list = texts.map((t, i) => `${i}: ${t}`).join('\n');
+  const prompt = `Estas são as legendas de um vídeo curto para Instagram, um bloco por linha (índice: texto).\n${list}\n\nEscolha os pontos altos: em mais ou menos 1 a cada 3 blocos, a palavra (ou no máximo 2 palavras seguidas) de maior impacto, que mereça destaque visual. Copie as palavras exatamente como estão no bloco. Responda só com JSON no formato {"destaques":[{"i":0,"palavras":"..."}]}.`;
+  for (const model of ['llama-3.3-70b-versatile', 'openai/gpt-oss-120b']) {
+    const r = await fetch('https://api.groq.com/openai/v1/chat/completions', { method: 'POST', headers: { Authorization: 'Bearer ' + prefs.groqKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model, temperature: 0.2, response_format: { type: 'json_object' }, messages: [{ role: 'user', content: prompt }] }) });
+    if (!r.ok) continue;
+    const j = await r.json(), txt = j.choices?.[0]?.message?.content || '';
+    const m = txt.match(/\{[\s\S]*\}/); if (!m) continue;
+    const arr = JSON.parse(m[0]).destaques || [];
+    const out = new Map(); arr.forEach((d) => { if (Number.isInteger(d.i) && d.i >= 0 && d.i < texts.length && d.palavras) out.set(d.i, String(d.palavras)); });
+    if (out.size) return out;
+  }
+  return null;
+}
 function freeTextHTML() {
   const list = S.layers.filter((l) => l.kind === 'text').sort((a, b) => a.start - b.start);
   return `
     <button class="btn primary" id="ft-add">${inlineIc('plus')} Adicionar texto no cursor</button>
     <p class="note">Texto livre por cima do vídeo (título, chamada, destaque). Fica numa camada própria e não mexe nas legendas.</p>
-    ${list.length ? `<div class="sec">Textos do vídeo</div>${list.map((l) => `<div class="cap-row" data-ft="${l.id}"><button class="cap-time">${fmt(l.start)}</button><button class="ft-name">${esc((l.text || '').trim() || 'Texto vazio')}</button></div>`).join('')}` : ''}
+    <div class="sec">Textos de modelo</div>
+    <div class="chips">${TEMPLATES.map((t) => `<button class="chip ${textTpl().id === t.id ? 'on' : ''}" data-ftpl="${t.id}">${t.name}</button>`).join('')}</div>
+    <div class="tpl-grid">${LAYOUTS.map((l) => `<button class="tpl-card" data-lay="${l.id}"><canvas data-prev-lay="${l.id}" data-tplid="${textTpl().id}"></canvas><span>${l.name}</span></button>`).join('')}</div>
+    <p class="note">Toque num layout para colocar no cursor. Dentro do texto, *asteriscos* marcam o destaque e cada linha nova vira uma linha do título.</p>
+    ${list.length ? `<div class="sec">Textos do vídeo</div>${list.map((l) => `<div class="cap-row" data-ft="${l.id}"><button class="cap-time">${fmt(l.start)}</button><button class="ft-name">${esc(stripMarks(l.text).trim() || 'Texto vazio')}</button></div>`).join('')}` : ''}
     <div class="sec">Legendas automáticas</div>
     <button class="btn" id="ft-gen">${inlineIc('type')} ${S.captions.length ? 'Editar legendas' : 'Gerar legendas automáticas'}</button>
     <p class="note">Transcreve a fala do vídeo e cria as legendas sozinho. O estilo delas fica na aba Estilo.</p>`;
 }
 function bindFreeText(b) {
   $('#ft-add', b).onclick = () => addTextLayer();
+  b.querySelectorAll('[data-ftpl]').forEach((el) => el.onclick = () => { prefs.textTpl = el.dataset.ftpl; savePrefs(); openCaptions('livre'); });
+  b.querySelectorAll('[data-lay]').forEach((el) => el.onclick = () => addTemplateText(el.dataset.lay));
+  paintPreviews(b);
   $('#ft-gen', b).onclick = () => openCaptions(S.captions.length ? 'texto' : 'gerar');
   b.querySelectorAll('[data-ft]').forEach((row) => row.onclick = () => {
     const L = S.layers.find((x) => x.id === row.dataset.ft); if (!L) return;
@@ -2075,7 +2229,7 @@ function capTextHTML() {
       </div></div>`);
   }
   if (!rows.length) return `<p class="note">Ainda não há legendas. Vá em <b>Gerar</b> para transcrever o áudio automaticamente.</p>`;
-  return `<p class="note">Toque no tempo para ir até o bloco. ✂ divide, ⤓ junta com o próximo.</p>` + rows.join('');
+  return `<p class="note">Toque no tempo para ir até o bloco. ✂ divide, ⤓ junta com o próximo.${tplById(S.cap.tpl) ? ' Coloque *asteriscos* em volta das palavras de destaque.' : ''}</p>` + rows.join('');
 }
 function bindCapText(b, focusId) {
   const autosize = (ta) => { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px'; };
@@ -2096,14 +2250,21 @@ function bindCapText(b, focusId) {
   if (focusId) { const row = b.querySelector(`.cap-row[data-id="${focusId}"]`); if (row) { row.scrollIntoView({ block: 'center' }); row.classList.add('cur'); } }
 }
 function capStyleHTML() {
-  const c = S.cap;
+  const c = S.cap, tpl = tplById(c.tpl);
   return `
-    <div class="sec">Fonte</div>
+    <div class="sec">Modelo de legenda</div>
+    <div class="tpl-grid">
+      <button class="tpl-card ${!tpl ? 'on' : ''}" data-tpl=""><canvas data-prev-plain></canvas><span>Simples</span></button>
+      ${TEMPLATES.map((t) => `<button class="tpl-card ${tpl?.id === t.id ? 'on' : ''}" data-tpl="${t.id}"><canvas data-prev-cap="${t.id}"></canvas><span>${t.name}</span></button>`).join('')}
+    </div>
+    ${tpl ? `<button class="btn primary" id="cap-auto">${inlineIc('zap')} Destacar pontos altos automaticamente</button>
+    <p class="note">${esc(tpl.desc)}. A fala corrida sai palavra por palavra na fonte base; nos pontos altos entra a combinação do modelo. Os destaques ficam entre *asteriscos* no texto (aba Legendas): marque ou desmarque à mão quando quiser.</p>` : ''}
+    ${tpl ? '' : `<div class="sec">Fonte</div>
     <div class="chips">${FONTS.map((f) => `<button class="chip ${c.font === f.id ? 'on' : ''}" data-font="${f.id}" style="font-family:${f.css}">${f.id}</button>`).join('')}</div>
     <div class="sec">Peso</div>
     <div class="chips">${[[400, 'Normal'], [600, 'Médio'], [700, 'Negrito'], [800, 'Extra']].map(([w, l]) => `<button class="chip ${c.weight === w ? 'on' : ''}" data-weight="${w}">${l}</button>`).join('')}</div>
     <div class="sec">Cor</div>
-    <div class="chips">${COLORS.map((x) => `<button class="sw ${c.color.toUpperCase() === x ? 'on' : ''}" data-color="${x}" style="background:${x}" aria-label="Cor ${x}"></button>`).join('')}<input type="color" id="cap-color" value="${c.color}" aria-label="Outra cor"></div>
+    <div class="chips">${COLORS.map((x) => `<button class="sw ${c.color.toUpperCase() === x ? 'on' : ''}" data-color="${x}" style="background:${x}" aria-label="Cor ${x}"></button>`).join('')}<input type="color" id="cap-color" value="${c.color}" aria-label="Outra cor"></div>`}
     ${rangeRow('size', 'Tamanho', 24, 160, 1, c.size, (v) => v)}
     ${rangeRow('y', 'Posição', 8, 92, 1, Math.round(c.y * 100), pctf)}
     <div class="sec">Sombra</div>
@@ -2121,8 +2282,14 @@ function bindCapStyle(b) {
   pick('weight', (v) => { c.weight = +v; document.fonts.load(`${c.weight} 40px ${fontCss(c.font)}`).then(draw); });
   pick('color', (v) => { c.color = v; $('#cap-color', b).value = v; });
   let pend = null;
-  $('#cap-color', b).addEventListener('input', (e) => { if (!pend) pend = snap(); c.color = e.target.value.toUpperCase(); b.querySelectorAll('[data-color]').forEach((x) => x.classList.remove('on')); draw(); });
-  $('#cap-color', b).addEventListener('change', () => { if (pend) pushHist(pend); pend = null; });
+  const cc = $('#cap-color', b);
+  if (cc) {
+    cc.addEventListener('input', (e) => { if (!pend) pend = snap(); c.color = e.target.value.toUpperCase(); b.querySelectorAll('[data-color]').forEach((x) => x.classList.remove('on')); draw(); });
+    cc.addEventListener('change', () => { if (pend) pushHist(pend); pend = null; });
+  }
+  b.querySelectorAll('[data-tpl]').forEach((el) => el.onclick = () => { commit(); c.tpl = el.dataset.tpl || null; savePrefs(); loadTemplateFonts().then(draw); openCaptions('estilo'); });
+  const au = $('#cap-auto', b); if (au) au.onclick = () => autoHighlight(au);
+  paintPreviews(b);
   $('#cap-upper', b).addEventListener('change', (e) => { commit(); c.upper = e.target.checked; draw(); });
   bindRanges(b, {
     size: { set: (v) => (c.size = v), fmt: (v) => v },
@@ -2806,7 +2973,8 @@ document.fonts.ready.then(draw);
 ensureFonts().then(draw);
 try { navigator.storage?.persist?.(); } catch {}
 // versão do app: aparece pequena ao lado do nome, para conferir se atualizou
-const APP_VERSION = 18;
+const APP_VERSION = 19;
+loadTemplateFonts().then(() => { try { draw(); } catch {} });
 { const b = document.querySelector('.brand-ver'); if (b) b.textContent = 'v' + APP_VERSION; }
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   // sempre procura a versão nova (sem usar cache) e recarrega sozinho quando ela chega
