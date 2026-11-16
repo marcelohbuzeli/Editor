@@ -1,4 +1,4 @@
-// Corte — editor de vídeo simples para iPhone (PWA)
+// Meu Editor — editor de vídeo simples para iPhone (PWA)
 // Tudo roda no aparelho: nada é enviado para servidores (exceto se usar a transcrição via Groq).
 
 const $ = (s, el = document) => el.querySelector(s);
@@ -712,36 +712,32 @@ function renderToolbar() {
   if (sel?.type === 'clip') {
     items = [
       ['scissors', 'Dividir', splitAtPlayhead], ['trash', 'Apagar', () => deleteClip(sel.id), 'danger'],
-      ['left', 'Mover', () => moveClip(sel.id, -1)], ['right', 'Mover', () => moveClip(sel.id, 1)],
-      ['trimL', 'Aparar início', () => trimClip(sel.id, 'start')], ['trimR', 'Aparar fim', () => trimClip(sel.id, 'end')],
       ['fade', 'Fade', () => openClipFade(sel.id)], ['zoomIn', 'Zoom', () => openZoomSheet(sel.id)],
-      ['key', 'Keyframes', openKfSheet], ['zap', 'Transições', () => openTransitionFor(sel.id)], ['contrast', 'Ajustes', () => openColor('clip', sel.id)], ['volume', 'Som', openAudioHub],
+      ['zap', 'Transições', () => openTransitionFor(sel.id)], ['contrast', 'Ajustes', () => openColor('clip', sel.id)], ['volume', 'Som', openAudioHub],
       ['x', 'Fechar', () => select(null)],
     ];
   } else if (sel?.type === 'clipaudio') {
     items = [
-      ['scissors', 'Dividir', splitAtPlayhead], ['volume', 'Som', openAudioHub], ['key', 'Keyframes', openKfSheet],
+      ['scissors', 'Dividir', splitAtPlayhead], ['volume', 'Som', openAudioHub],
       ['unlink', 'Desvincular', () => unlinkAudio(sel.id)], ['trash', 'Apagar áudio', () => deleteClipAudio(sel.id), 'danger'],
       ['x', 'Fechar', () => select(null)],
     ];
   } else if (sel?.type === 'audio') {
     items = [
       ['scissors', 'Dividir', splitAtPlayhead], ['trash', 'Apagar', () => deleteAudio(sel.id), 'danger'],
-      ['volume', 'Som', openAudioHub], ['key', 'Keyframes', openKfSheet], ['target', 'Início aqui', () => audioToPlayhead(sel.id)],
-      ['trimL', 'Aparar início', () => trimAudio(sel.id, 'start')], ['trimR', 'Aparar fim', () => trimAudio(sel.id, 'end')],
+      ['volume', 'Som', openAudioHub], ['target', 'Início aqui', () => audioToPlayhead(sel.id)],
       ['x', 'Fechar', () => select(null)],
     ];
   } else if (sel?.type === 'layer') {
     items = [
-      S.layers.find((x) => x.id === sel.id)?.kind === 'adjust' ? ['contrast', 'Ajustes', () => openColor('layer', sel.id)] : ['sliders', 'Ajustar', () => openLayerSheet(sel.id)], ...(S.layers.find((x) => x.id === sel.id)?.kind === 'adjust' ? [] : [['key', 'Keyframes', openKfSheet]]), ['target', 'Início aqui', () => { const L = S.layers.find((x) => x.id === sel.id); commit(); L.start = S.t; refresh(); }],
-      ['trimL', 'Aparar início', () => trimLayer(sel.id, 'start')], ['trimR', 'Aparar fim', () => trimLayer(sel.id, 'end')],
+      S.layers.find((x) => x.id === sel.id)?.kind === 'adjust' ? ['contrast', 'Ajustes', () => openColor('layer', sel.id)] : ['sliders', 'Ajustar', () => openLayerSheet(sel.id)], ['target', 'Início aqui', () => { const L = S.layers.find((x) => x.id === sel.id); commit(); L.start = S.t; refresh(); }],
       ['trash', 'Apagar', () => { commit(); S.layers = S.layers.filter((x) => x.id !== sel.id); S.sel = null; refresh(); }, 'danger'],
       ['x', 'Fechar', () => select(null)],
     ];
   } else if (sel?.type === 'caption') {
     items = [
       ['edit', 'Editar texto', () => openCaptions('texto', sel.id)], ['scissors', 'Dividir', () => splitCaption(sel.id)],
-      ['trash', 'Apagar', () => deleteCaption(sel.id), 'danger'], ['type', 'Estilo', () => openCaptions('estilo')], ['key', 'Keyframes', openKfSheet],
+      ['trash', 'Apagar', () => deleteCaption(sel.id), 'danger'], ['type', 'Estilo', () => openCaptions('estilo')],
       ['x', 'Fechar', () => select(null)],
     ];
   } else {
@@ -751,6 +747,7 @@ function renderToolbar() {
       ['contrast', 'Ajustes', addAdjustLayer],
     ];
   }
+  $('#btn-kf').classList.toggle('ready', !!kfTarget());
   tb.innerHTML = '';
   for (const [icon, label, fn, cls] of items) {
     const b = document.createElement('button'); b.className = 'tool ' + (cls || '');
@@ -1540,7 +1537,7 @@ function drawLayers(ctx, W, H, t, pre) {
     const seld = pre && S.sel?.type === 'layer' && S.sel.id === L.id && !E.playing && !FSP.on;
     ctx.save(); ctx.translate(lx, ly); if (rot) ctx.rotate(rot * Math.PI / 180);
     if (op > 0) { ctx.globalAlpha = op; ctx.drawImage(src, -w / 2, -h / 2, w, h); }
-    if (seld) { ctx.globalAlpha = 1; ctx.strokeStyle = '#ff8a4c'; ctx.lineWidth = 2; ctx.setLineDash([6, 4]); ctx.strokeRect(-w / 2, -h / 2, w, h); }
+    if (seld) { ctx.globalAlpha = 1; ctx.strokeStyle = '#b48cff'; ctx.lineWidth = 2; ctx.setLineDash([6, 4]); ctx.strokeRect(-w / 2, -h / 2, w, h); }
     ctx.restore();
     if (pre) layerRects.push({ id: L.id, x, y, w, h });
   }
@@ -2627,6 +2624,8 @@ const fsToggle = () => (E.playing ? pause() : play());
 
 $('#btn-fs').innerHTML = ic('expand');
 $('#btn-fs').onclick = openFs;
+$('#btn-kf').innerHTML = ic('key');
+$('#btn-kf').onclick = () => (sheetKind === 'kf' ? closeSheet() : openKfSheet());
 $('#fs-close').innerHTML = ic('x');
 $('#fs-back').innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><text x="12" y="15.5" font-size="7" text-anchor="middle" fill="currentColor" stroke="none" font-weight="700">5</text></svg>';
 $('#fs-fwd').innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/><text x="12" y="15.5" font-size="7" text-anchor="middle" fill="currentColor" stroke="none" font-weight="700">5</text></svg>';
@@ -2650,7 +2649,7 @@ document.fonts.ready.then(draw);
 ensureFonts().then(draw);
 try { navigator.storage?.persist?.(); } catch {}
 // versão do app: aparece pequena ao lado do nome, para conferir se atualizou
-const APP_VERSION = 13;
+const APP_VERSION = 14;
 { const b = document.querySelector('.brand-ver'); if (b) b.textContent = 'v' + APP_VERSION; }
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   // sempre procura a versão nova (sem usar cache) e recarrega sozinho quando ela chega
