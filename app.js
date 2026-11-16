@@ -747,7 +747,7 @@ function renderToolbar() {
   } else {
     items = [
       ['plus', 'Novo', () => $('#file-video').click()], ['music', 'Áudio', openAudioHub],
-      ['type', 'Legenda', () => openCaptions()], ['textbox', 'Texto', addTextLayer], ['layers', 'Camada', () => $('#file-layer').click()],
+      ['type', 'Texto', () => openCaptions('livre')], ['layers', 'Camada', () => $('#file-layer').click()],
       ['contrast', 'Ajustes', addAdjustLayer],
     ];
   }
@@ -2030,15 +2030,35 @@ function openTransitionFor(clipId) {
 let capTab = 'texto';
 function openCaptions(tab, focusId) {
   if (!S.clips.length) return toast('Adicione um vídeo primeiro');
-  capTab = tab || (S.captions.length ? 'texto' : 'gerar');
-  const tabs = [['texto', 'Texto'], ['estilo', 'Estilo'], ['gerar', 'Gerar']];
+  capTab = tab || 'livre';
+  // um lugar só para texto: texto livre (camadas) + legendas automáticas (editar, estilo, gerar)
+  const tabs = [['livre', 'Texto'], ['texto', 'Legendas'], ['estilo', 'Estilo'], ['gerar', 'Gerar']];
   const head = `<div class="tabs">${tabs.map(([k, l]) => `<button class="tab ${capTab === k ? 'on' : ''}" data-tab="${k}">${l}</button>`).join('')}</div>`;
-  const body = capTab === 'texto' ? capTextHTML() : capTab === 'estilo' ? capStyleHTML() : capGenHTML();
-  openSheet('captions', 'Legendas', head + body, (b) => {
+  const body = capTab === 'livre' ? freeTextHTML() : capTab === 'texto' ? capTextHTML() : capTab === 'estilo' ? capStyleHTML() : capGenHTML();
+  openSheet('captions', 'Texto', head + body, (b) => {
     b.querySelectorAll('[data-tab]').forEach((el) => el.onclick = () => openCaptions(el.dataset.tab));
-    if (capTab === 'texto') bindCapText(b, focusId);
+    if (capTab === 'livre') bindFreeText(b);
+    else if (capTab === 'texto') bindCapText(b, focusId);
     else if (capTab === 'estilo') bindCapStyle(b);
     else bindCapGen(b);
+  });
+}
+function freeTextHTML() {
+  const list = S.layers.filter((l) => l.kind === 'text').sort((a, b) => a.start - b.start);
+  return `
+    <button class="btn primary" id="ft-add">${inlineIc('plus')} Adicionar texto no cursor</button>
+    <p class="note">Texto livre por cima do vídeo (título, chamada, destaque). Fica numa camada própria e não mexe nas legendas.</p>
+    ${list.length ? `<div class="sec">Textos do vídeo</div>${list.map((l) => `<div class="cap-row" data-ft="${l.id}"><button class="cap-time">${fmt(l.start)}</button><button class="ft-name">${esc((l.text || '').trim() || 'Texto vazio')}</button></div>`).join('')}` : ''}
+    <div class="sec">Legendas automáticas</div>
+    <button class="btn" id="ft-gen">${inlineIc('type')} ${S.captions.length ? 'Editar legendas' : 'Gerar legendas automáticas'}</button>
+    <p class="note">Transcreve a fala do vídeo e cria as legendas sozinho. O estilo delas fica na aba Estilo.</p>`;
+}
+function bindFreeText(b) {
+  $('#ft-add', b).onclick = () => addTextLayer();
+  $('#ft-gen', b).onclick = () => openCaptions(S.captions.length ? 'texto' : 'gerar');
+  b.querySelectorAll('[data-ft]').forEach((row) => row.onclick = () => {
+    const L = S.layers.find((x) => x.id === row.dataset.ft); if (!L) return;
+    seekTo(L.start + 0.01); select('layer', L.id); openTextSheet(L.id);
   });
 }
 function capTextHTML() {
@@ -2786,7 +2806,7 @@ document.fonts.ready.then(draw);
 ensureFonts().then(draw);
 try { navigator.storage?.persist?.(); } catch {}
 // versão do app: aparece pequena ao lado do nome, para conferir se atualizou
-const APP_VERSION = 17;
+const APP_VERSION = 18;
 { const b = document.querySelector('.brand-ver'); if (b) b.textContent = 'v' + APP_VERSION; }
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   // sempre procura a versão nova (sem usar cache) e recarrega sozinho quando ela chega
