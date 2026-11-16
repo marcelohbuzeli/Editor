@@ -2401,6 +2401,29 @@ async function exportFrames(res, codecs) {
     function fin() { clearTimeout(to); v.removeEventListener('seeked', fin); ok(); }
     v.addEventListener('seeked', fin); v.currentTime = s;
   });
+  // camadas de vídeo: antes de gravar cada quadro, a camada é levada (e esperada) até o quadro exato.
+  // Sem isso, um vídeo pesado (4K/HEVC do iPhone) não acompanha e a camada congela ou pisca no arquivo final.
+  const waitFrame = (v) => new Promise((ok) => {
+    if (v.readyState >= 2 && !v.seeking) return ok();
+    const to = setTimeout(fin, 3000);
+    function fin() { clearTimeout(to); v.removeEventListener('loadeddata', fin); v.removeEventListener('canplay', fin); v.removeEventListener('seeked', fin); ok(); }
+    v.addEventListener('loadeddata', fin); v.addEventListener('canplay', fin); v.addEventListener('seeked', fin);
+  });
+  const layerActive = (L, t) => t >= L.start && t < L.start + L.out - L.in;
+  const layersAt = (t) => {
+    let ps = null;
+    for (const L of S.layers) {
+      if (L.kind !== 'video') continue;
+      const v = layerVideo(L); if (!v) continue;
+      if (!v.paused) v.pause();
+      if (!layerActive(L, t)) continue;
+      const len = L.out - L.in, s = L.in + clamp(t - L.start, 0, Math.max(0, len - 0.02));
+      if (!v.seeking && v.readyState >= 2 && Math.abs(v.currentTime - s) < 0.25 / FPS) continue;
+      (ps ||= []).push(seekVid(v, s).then(() => waitFrame(v)));
+    }
+    return ps && Promise.all(ps);
+  };
+  const clipHasLayer = (r) => S.layers.some((L) => L.kind === 'video' && L.start < r.end && L.start + L.out - L.in > r.start);
   E.rate = 1;
   const progress = () => {
     const pct = Math.min(99, Math.round(100 * k / total_frames));
@@ -2411,7 +2434,8 @@ async function exportFrames(res, codecs) {
     // grava todos os quadros da grade de 30 fps até o tempo tl, usando o quadro atual do vídeo
     let n = 0;
     while (k < total_frames && k / FPS <= tl + 1e-4) {
-      const t = k / FPS; S.t = t; syncLayers(t);
+      const t = k / FPS; S.t = t;
+      const lw = layersAt(t); if (lw) await lw;
       renderFrame(cx, W, H, t, r, v);
       const fr = new VideoFrame(cv, { timestamp: Math.round(t * 1e6), duration: Math.round(1e6 / FPS) });
       venc.encode(fr, { keyFrame: k % (FPS * 2) === 0 }); fr.close();
@@ -2440,7 +2464,7 @@ async function exportFrames(res, codecs) {
       E.stalled = true; v.pause();
       await seekVid(v, srcT(k));
       await emitUpTo(k / FPS, r, v); await drain();
-      if (seekMode || lastK()) continue;
+      if (seekMode || lastK() || clipHasLayer(r)) continue; // com camada de vídeo: sempre quadro a quadro
       // depois, tenta tocar e capturar cada quadro novo (mais rápido). Se perder algum quadro, volta para a busca.
       const res = await new Promise((done) => {
         let fin = false, lastCb = performance.now();
@@ -2762,7 +2786,7 @@ document.fonts.ready.then(draw);
 ensureFonts().then(draw);
 try { navigator.storage?.persist?.(); } catch {}
 // versão do app: aparece pequena ao lado do nome, para conferir se atualizou
-const APP_VERSION = 16;
+const APP_VERSION = 17;
 { const b = document.querySelector('.brand-ver'); if (b) b.textContent = 'v' + APP_VERSION; }
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   // sempre procura a versão nova (sem usar cache) e recarrega sozinho quando ela chega
