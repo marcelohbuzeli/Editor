@@ -45,6 +45,7 @@ const ICONS = {
   key: '<path d="M12 2.5 21.5 12 12 21.5 2.5 12z"/>',
   keyFill: '<path d="M12 2.5 21.5 12 12 21.5 2.5 12z" fill="currentColor"/>',
   expand: '<path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/>',
+  textbox: '<rect x="3" y="4" width="18" height="16" rx="3"/><path d="M8 9h8M12 9v7"/>',
   unlink: '<path d="m18.84 12.25 1.72-1.71a5 5 0 0 0-7.07-7.07l-1.72 1.71M5.17 11.75l-1.71 1.71a5 5 0 0 0 7.07 7.07l1.71-1.71M8 2v3M2 8h3M16 22v-3M22 16h-3"/>',
 };
 const ic = (n) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICONS[n]}</svg>`;
@@ -575,10 +576,10 @@ function renderTimeline() {
   const ll = layerLanes(); tl.style.height = (ll.count * 40) + 'px'; tl.style.marginTop = ll.count ? '4px' : '0';
   for (const L of S.layers) {
     const el = document.createElement('div');
-    el.className = 'lay' + (L.kind === 'adjust' ? ' adj' : '') + (S.sel?.type === 'layer' && S.sel.id === L.id ? ' sel' : '');
+    el.className = 'lay' + (L.kind === 'adjust' ? ' adj' : L.kind === 'text' ? ' txt' : '') + (S.sel?.type === 'layer' && S.sel.id === L.id ? ' sel' : '');
     el.style.left = (h + L.start * pps) + 'px'; el.style.width = Math.max(3, (L.out - L.in) * pps - 2) + 'px'; el.style.top = (ll.map.get(L.id) * 40) + 'px';
     const th = L.kind === 'image' ? images.get(L.srcId)?.url : media.get(L.srcId)?.thumb; if (th) el.style.backgroundImage = `url(${th})`;
-    el.innerHTML = (L.kind === 'adjust' ? '<span class="nm">Ajuste</span>' : `<span class="nm">${L.kind === 'image' ? 'Imagem' : 'Vídeo'}</span>`) + kfMarks(L, L.in, L.out, pps);
+    el.innerHTML = (L.kind === 'adjust' ? '<span class="nm">Ajuste</span>' : L.kind === 'text' ? `<span class="nm">Texto</span><span class="tx">${esc(L.text || '')}</span>` : `<span class="nm">${L.kind === 'image' ? 'Imagem' : 'Vídeo'}</span>`) + kfMarks(L, L.in, L.out, pps);
     el.onclick = (e) => { e.stopPropagation(); if (el._dragged) { el._dragged = false; return; } select('layer', L.id); };
     if (S.sel?.type === 'layer' && S.sel.id === L.id) addHandles(el);
     bindDrag(el, 'layer', L.id, spanOps(el, L, h, { free: L.kind !== 'video', maxOut: L.kind === 'video' ? (media.get(L.srcId)?.duration ?? Infinity) : Infinity }));
@@ -729,8 +730,11 @@ function renderToolbar() {
       ['x', 'Fechar', () => select(null)],
     ];
   } else if (sel?.type === 'layer') {
+    const lk = S.layers.find((x) => x.id === sel.id)?.kind;
     items = [
-      S.layers.find((x) => x.id === sel.id)?.kind === 'adjust' ? ['contrast', 'Ajustes', () => openColor('layer', sel.id)] : ['sliders', 'Ajustar', () => openLayerSheet(sel.id)], ['target', 'Início aqui', () => { const L = S.layers.find((x) => x.id === sel.id); commit(); L.start = S.t; refresh(); }],
+      lk === 'adjust' ? ['contrast', 'Ajustes', () => openColor('layer', sel.id)] : lk === 'text' ? ['edit', 'Editar texto', () => openTextSheet(sel.id)] : ['sliders', 'Ajustar', () => openLayerSheet(sel.id)],
+      ['scissors', 'Dividir', () => splitLayer(sel.id)], ['trimL', 'Cortar início', () => trimLayer(sel.id, 'start')], ['trimR', 'Cortar fim', () => trimLayer(sel.id, 'end')],
+      ['target', 'Início aqui', () => { const L = S.layers.find((x) => x.id === sel.id); commit(); L.start = S.t; refresh(); }],
       ['trash', 'Apagar', () => { commit(); S.layers = S.layers.filter((x) => x.id !== sel.id); S.sel = null; refresh(); }, 'danger'],
       ['x', 'Fechar', () => select(null)],
     ];
@@ -743,7 +747,7 @@ function renderToolbar() {
   } else {
     items = [
       ['plus', 'Novo', () => $('#file-video').click()], ['music', 'Áudio', openAudioHub],
-      ['type', 'Legenda', () => openCaptions()], ['layers', 'Camada', () => $('#file-layer').click()],
+      ['type', 'Legenda', () => openCaptions()], ['textbox', 'Texto', addTextLayer], ['layers', 'Camada', () => $('#file-layer').click()],
       ['contrast', 'Ajustes', addAdjustLayer],
     ];
   }
@@ -759,6 +763,7 @@ function renderToolbar() {
 function newClipTransition() { return S.fx.autoTr || 'none'; }
 function splitAtPlayhead() {
   if (S.sel?.type === 'audio') return splitAudio(S.sel.id);
+  if (S.sel?.type === 'layer') return splitLayer(S.sel.id);
   if (!S.clips.length) return toast('Adicione um vídeo primeiro');
   const r = clipAt(S.t), s = r.clip.in + (S.t - r.start);
   if (s - r.clip.in < 0.1 || r.clip.out - s < 0.1) return toast('Mova o cursor para o meio do clipe');
@@ -1177,7 +1182,7 @@ function kfTarget(sel = S.sel) {
   }
   if (sel.type === 'layer') {
     const o = S.layers.find((x) => x.id === sel.id); if (!o || o.kind === 'adjust') return null;
-    return { kind: 'layer', o, name: o.kind === 'image' ? 'Camada de imagem' : 'Camada de vídeo', props: [...KF_VIS, ...(o.kind === 'video' ? ['vol'] : [])],
+    return { kind: 'layer', o, name: o.kind === 'image' ? 'Camada de imagem' : o.kind === 'text' ? 'Texto' : 'Camada de vídeo', props: [...KF_VIS, ...(o.kind === 'video' ? ['vol'] : [])],
       a: o.start, b: o.start + o.out - o.in, src: (t) => o.in + (t - o.start), tl: (s) => o.start + (s - o.in) };
   }
   if (sel.type === 'audio') {
@@ -1527,6 +1532,7 @@ function drawLayers(ctx, W, H, t, pre) {
     const len = L.out - L.in; if (t < L.start || t >= L.start + len) continue;
     let src, sw, sh;
     if (L.kind === 'adjust') continue;
+    if (L.kind === 'text') { drawTextLayer(ctx, W, H, L, t, pre); continue; }
     if (L.kind === 'image') { const im = images.get(L.srcId); if (!im) continue; src = im.img; sw = im.w; sh = im.h; }
     else { const v = layerEls.get(L.id); if (!v || v.readyState < 2) continue; src = v; sw = v.videoWidth; sh = v.videoHeight; }
     if (!sw || !sh) continue;
@@ -1542,6 +1548,97 @@ function drawLayers(ctx, W, H, t, pre) {
     if (pre) layerRects.push({ id: L.id, x, y, w, h });
   }
 }
+// ---------- Camada de texto (texto livre, independente das legendas automáticas) ----------
+const TEXT_BG = [['', 'Nenhum'], ['#000000', 'Preto'], ['#FFFFFF', 'Branco'], ['#FFD84D', 'Amarelo'], ['#7C4DFF', 'Roxo']];
+function textMetrics(ctx, W, H, L) {
+  const k = Math.min(W, H) / 1080, fs = (L.size || 80) * k;
+  ctx.font = `${L.weight || 700} ${fs}px ${fontCss(L.font)}`;
+  const txt = (L.upper ? (L.text || '').toUpperCase() : (L.text || '')).trim() || ' ';
+  const lines = wrapLines(ctx, txt, W * 0.86);
+  const lh = fs * 1.2, w = Math.max(fs * 0.5, ...lines.map((l) => ctx.measureText(l).width));
+  return { k, fs, lines, lh, w, h: lines.length * lh };
+}
+function drawTextLayer(ctx, W, H, L, t, pre) {
+  const s = L.in + (t - L.start);
+  const sc = kfVal(L, 'scale', s, L.scale ?? 1), lx = kfVal(L, 'x', s, L.x ?? 0.5) * W, ly = kfVal(L, 'y', s, L.y ?? 0.5) * H;
+  const rot = kfVal(L, 'rot', s, L.rot ?? 0), op = clamp(kfVal(L, 'op', s, L.op ?? 1), 0, 1);
+  ctx.save(); ctx.translate(lx, ly); if (rot) ctx.rotate(rot * Math.PI / 180); if (sc !== 1) ctx.scale(sc, sc);
+  const m = textMetrics(ctx, W, H, L), pad = m.fs * 0.35;
+  const bw = m.w + (L.bg ? pad * 2 : 0), bh = m.h + (L.bg ? pad * 1.2 : 0);
+  if (op > 0) {
+    ctx.globalAlpha = op;
+    if (L.bg) {
+      ctx.fillStyle = L.bg; ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(-bw / 2, -bh / 2, bw, bh, m.fs * 0.25); else ctx.rect(-bw / 2, -bh / 2, bw, bh);
+      ctx.fill();
+    }
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = L.color || '#FFFFFF';
+    if (L.shadow && !L.bg) { ctx.shadowColor = 'rgba(0,0,0,.7)'; ctx.shadowBlur = 12 * m.k; }
+    let y = -(m.lines.length - 1) * m.lh / 2;
+    for (const ln of m.lines) { ctx.fillText(ln, 0, y); y += m.lh; }
+  }
+  const seld = pre && S.sel?.type === 'layer' && S.sel.id === L.id && !E.playing && !FSP.on;
+  if (seld) { ctx.globalAlpha = 1; ctx.shadowColor = 'transparent'; ctx.strokeStyle = '#b48cff'; ctx.lineWidth = 2 / sc; ctx.setLineDash([6 / sc, 4 / sc]); ctx.strokeRect(-bw / 2 - 4, -bh / 2 - 4, bw + 8, bh + 8); }
+  ctx.restore();
+  if (pre) layerRects.push({ id: L.id, x: lx - (bw / 2 + 4) * sc, y: ly - (bh / 2 + 4) * sc, w: (bw + 8) * sc, h: (bh + 8) * sc });
+}
+function addTextLayer() {
+  if (!S.clips.length) return toast('Adicione um vídeo primeiro');
+  const T = total(), start = S.t >= T - 0.3 ? 0 : S.t;
+  commit();
+  const L = { id: uid(), kind: 'text', name: 'Texto', text: 'Seu texto', start, in: 0, out: Math.max(0.5, Math.min(3, T - start)),
+    x: 0.5, y: 0.35, scale: 1, rot: 0, op: 1, font: S.cap.font, weight: 800, size: 80, color: '#FFFFFF', bg: '', shadow: true, upper: false };
+  S.layers.push(L); S.sel = { type: 'layer', id: L.id }; refresh();
+  openTextSheet(L.id, true);
+}
+function openTextSheet(id, fresh = false) {
+  const L = S.layers.find((x) => x.id === id); if (!L || L.kind !== 'text') return;
+  const T = kfTarget({ type: 'layer', id });
+  openSheet('layer', 'Texto', `
+    <textarea id="tx-text" class="tx-in" rows="2" placeholder="Digite o texto">${esc(L.text)}</textarea>
+    <div class="sec">Fonte</div>
+    <div class="chips">${FONTS.map((f) => `<button class="chip ${L.font === f.id ? 'on' : ''}" data-font="${f.id}" style="font-family:${f.css}">${f.id}</button>`).join('')}</div>
+    <div class="sec">Peso</div>
+    <div class="chips">${[[400, 'Normal'], [600, 'Médio'], [700, 'Negrito'], [800, 'Extra']].map(([w, l]) => `<button class="chip ${L.weight === w ? 'on' : ''}" data-weight="${w}">${l}</button>`).join('')}</div>
+    <div class="sec">Cor</div>
+    <div class="chips">${COLORS.map((x) => `<button class="sw ${(L.color || '').toUpperCase() === x ? 'on' : ''}" data-color="${x}" style="background:${x}" aria-label="Cor ${x}"></button>`).join('')}<input type="color" id="tx-color" value="${L.color}" aria-label="Outra cor"></div>
+    <div class="sec">Fundo</div>
+    <div class="chips">${TEXT_BG.map(([c, l]) => `<button class="chip ${(L.bg || '') === c ? 'on' : ''}" data-bg="${c}">${l}</button>`).join('')}</div>
+    ${rangeRow('ts', 'Tamanho', 24, 240, 1, L.size, (v) => v, 80)}
+    ${rangeRow('lx', 'Horizontal', 0, 100, 1, Math.round(kfGet(T, 'x') * 100), pctf)}
+    ${rangeRow('ly', 'Vertical', 0, 100, 1, Math.round(kfGet(T, 'y') * 100), pctf, 35)}
+    ${rangeRow('ld', 'Duração', 0.5, 60, 0.1, L.out - L.in, sec)}
+    <div class="row"><label>Sombra</label><span class="spacer"></span><input type="checkbox" class="tg" id="tx-shadow" ${L.shadow ? 'checked' : ''}></div>
+    <div class="row"><label>Maiúsculas</label><span class="spacer"></span><input type="checkbox" class="tg" id="tx-upper" ${L.upper ? 'checked' : ''}></div>
+    <button class="btn" id="l-kf">${inlineIc('key')} Animar com keyframes</button>
+    <p class="note">O texto fica numa camada própria, por cima do vídeo, e não muda as legendas automáticas. Arraste na prévia para mover; com dois dedos, aumenta ou diminui.</p>`,
+  (b) => {
+    const ta = $('#tx-text', b); let pend = null, tlT = 0;
+    ta.addEventListener('input', () => { if (!pend) pend = snap(); L.text = ta.value; draw(); clearTimeout(tlT); tlT = setTimeout(renderTimeline, 250); });
+    ta.addEventListener('change', () => { if (pend) pushHist(pend); pend = null; renderTimeline(); });
+    if (fresh) setTimeout(() => { ta.focus(); ta.select(); }, 60);
+    const pick = (attr, fn) => b.querySelectorAll(`[data-${attr}]`).forEach((el) => el.onclick = () => {
+      commit(); fn(el.dataset[attr]); b.querySelectorAll(`[data-${attr}]`).forEach((x) => x.classList.toggle('on', x === el)); draw();
+    });
+    const loadF = () => document.fonts.load(`${L.weight} 40px ${fontCss(L.font)}`).then(draw);
+    pick('font', (v) => { L.font = v; loadF(); });
+    pick('weight', (v) => { L.weight = +v; loadF(); });
+    pick('color', (v) => { L.color = v; $('#tx-color', b).value = v; });
+    pick('bg', (v) => { L.bg = v; });
+    let cp = null;
+    $('#tx-color', b).addEventListener('input', (e) => { if (!cp) cp = snap(); L.color = e.target.value.toUpperCase(); b.querySelectorAll('[data-color]').forEach((x) => x.classList.remove('on')); draw(); });
+    $('#tx-color', b).addEventListener('change', () => { if (cp) pushHist(cp); cp = null; });
+    $('#tx-shadow', b).addEventListener('change', (e) => { commit(); L.shadow = e.target.checked; draw(); });
+    $('#tx-upper', b).addEventListener('change', (e) => { commit(); L.upper = e.target.checked; draw(); });
+    bindRanges(b, {
+      ts: { set: (v) => (L.size = v), fmt: (v) => v },
+      lx: { set: (v) => kfPut(T, 'x', v / 100), fmt: pctf, after: renderTimeline }, ly: { set: (v) => kfPut(T, 'y', v / 100), fmt: pctf, after: renderTimeline },
+      ld: { set: (v) => (L.out = L.in + v), fmt: sec, after: renderTimeline },
+    });
+    $('#l-kf', b).onclick = openKfSheet;
+    loadF();
+  });
+}
 function layerLanes() {
   const lanes = [], res = new Map();
   for (const L of [...S.layers].sort((a, b) => a.start - b.start)) {
@@ -1552,6 +1649,7 @@ function layerLanes() {
 }
 function openLayerSheet(id) {
   const L = S.layers.find((x) => x.id === id); if (!L) return;
+  if (L.kind === 'text') return openTextSheet(id);
   const isImg = L.kind === 'image', T = kfTarget({ type: 'layer', id });
   openSheet('layer', isImg ? 'Camada de imagem' : 'Camada de vídeo', `
     ${rangeRow('ls', 'Tamanho', 5, 150, 1, Math.round(kfGet(T, 'scale') * 100), pctf, isImg ? 50 : 100)}
@@ -1780,6 +1878,19 @@ async function buildExportAudio(T) {
   return a;
 }
 
+// divide a camada no cursor: as duas partes mantêm posição, estilo e keyframes (tempo de origem)
+function splitLayer(id) {
+  const L = S.layers.find((x) => x.id === id); if (!L) return;
+  const off = S.t - L.start;
+  if (off < 0.1 || off > L.out - L.in - 0.1) return toast('Coloque o cursor dentro da camada selecionada');
+  commit();
+  const nl = { ...structuredClone(L), id: uid(), start: S.t, in: L.in + off };
+  L.out = L.in + off;
+  S.layers.splice(S.layers.indexOf(L) + 1, 0, nl);
+  S.sel = { type: 'layer', id: nl.id };
+  toast('Camada dividida', 1400);
+  refresh();
+}
 function trimLayer(id, side) {
   const L = S.layers.find((x) => x.id === id), off = S.t - L.start;
   if (off < 0.05 || off > L.out - L.in - 0.05) return toast('Coloque o cursor dentro da camada selecionada');
@@ -2529,7 +2640,7 @@ async function restoreProject() {
     if (S.fx.fadeOut?.on && S.clips.length) { const lc = S.clips[S.clips.length - 1]; lc.vfo = S.fx.fadeOut.dur; lc.vfa = S.fx.fadeAudio !== false; }
     S.fx.fadeIn.on = false; S.fx.fadeOut.on = false;
     for (const im of p.images || []) { const file = await dbGet('file:' + im.id); if (file) { try { images.set(im.id, await loadImage(file, im.id)); } catch {} } }
-    S.layers = S.layers.filter((l) => (l.kind === 'adjust' ? true : l.kind === 'image' ? images.has(l.srcId) : media.has(l.srcId)));
+    S.layers = S.layers.filter((l) => (l.kind === 'adjust' || l.kind === 'text' ? true : l.kind === 'image' ? images.has(l.srcId) : media.has(l.srcId)));
     S.clips = S.clips.filter((c) => media.has(c.mediaId));
     S.audios = S.audios.filter((a) => buffers.has(a.bufferId));
     S.words = p.words || {}; S.aspect = p.aspect; S.t = clamp(p.t || 0, 0, total());
@@ -2649,7 +2760,7 @@ document.fonts.ready.then(draw);
 ensureFonts().then(draw);
 try { navigator.storage?.persist?.(); } catch {}
 // versão do app: aparece pequena ao lado do nome, para conferir se atualizou
-const APP_VERSION = 14;
+const APP_VERSION = 15;
 { const b = document.querySelector('.brand-ver'); if (b) b.textContent = 'v' + APP_VERSION; }
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   // sempre procura a versão nova (sem usar cache) e recarrega sozinho quando ela chega

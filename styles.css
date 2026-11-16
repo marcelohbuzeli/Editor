@@ -327,3 +327,7 @@ video.result { width: 100%; max-height: 30dvh; border-radius: var(--r-sm); backg
 #btn-kf { color: var(--ink-3); }
 #btn-kf.ready { color: #fff; background: rgba(155, 92, 255, .22); border-color: rgba(155, 92, 255, .55); }
 body.sheet-open #btn-kf.ready { background: var(--accent); border-color: var(--accent); }
+.lay.txt { background: linear-gradient(90deg, rgba(180, 140, 255, .55), rgba(255, 140, 200, .35)); }
+.lay.txt .tx { position: absolute; left: 5px; right: 5px; bottom: 3px; font-size: 11px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tx-in { width: 100%; box-sizing: border-box; background: var(--glass-2); color: var(--ink); border: 1px solid var(--line); border-radius: var(--r-xs); padding: 10px 12px; font: inherit; font-size: 16px; resize: vertical; min-height: 56px; margin-bottom: 6px; }
+.tx-in:focus { outline: none; border-color: var(--accent); }
