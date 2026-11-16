@@ -7,38 +7,47 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Corte">
-<meta name="theme-color" content="#0b0b0d">
+<meta name="theme-color" content="#100a07">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icons/icon-180.png">
 <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700;800&family=Poppins:wght@400;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=12">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Montserrat:wght@400;600;700;800&family=Poppins:wght@400;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css?v=13">
 <title>Corte</title>
 </head>
 <body>
 <div id="app">
   <header id="top">
-    <button id="btn-new" class="icon" aria-label="Novo projeto"></button>
-    <button id="btn-undo" class="icon" aria-label="Desfazer"></button>
-    <button id="btn-redo" class="icon" aria-label="Refazer"></button>
-    <div class="brand">Meu Editor</div>
-    <button id="btn-export" class="primary">Exportar</button>
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4 8.12 15.88M14.47 14.48 20 20M8.12 8.12 12 12"/></svg></span>
+      <span class="brand-txt"><span class="brand-name">Meu Editor</span><span class="brand-ver"></span></span>
+    </div>
+    <div class="top-acts">
+      <button id="btn-undo" class="icon" aria-label="Desfazer"></button>
+      <button id="btn-redo" class="icon" aria-label="Refazer"></button>
+      <button id="btn-new" class="icon" aria-label="Novo projeto"></button>
+      <button id="btn-export" class="primary">Exportar</button>
+    </div>
   </header>
 
   <section id="stage">
     <canvas id="preview" width="540" height="960"></canvas>
     <div id="empty">
-      <button id="btn-add-first" class="big">＋ Adicionar vídeo</button>
-      <p>Escolha um vídeo da galeria para começar</p>
+      <div class="empty-card">
+        <span class="empty-ic" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="14" height="12" rx="2"/><path d="m22 8-6 4 6 4z"/></svg></span>
+        <h2>Comece um projeto</h2>
+        <p>Escolha um ou mais vídeos da galeria. Tudo fica no seu aparelho.</p>
+        <button id="btn-add-first" class="big">Adicionar vídeo</button>
+      </div>
     </div>
   </section>
 
   <div id="transport">
     <span id="time">00:00.0 / 00:00.0</span>
     <button id="btn-play" class="play" aria-label="Reproduzir"></button>
-    <span class="tspacer"></span>
+    <div class="tright"><button id="btn-fs" class="icon" aria-label="Assistir em tela cheia" title="Tela cheia"></button></div>
   </div>
 
   <section id="timeline">
@@ -63,12 +72,30 @@
   <div class="sheet-head"><h3 id="sheet-title"></h3><button id="sheet-close" class="icon" aria-label="Fechar"></button></div>
   <div id="sheet-body"></div>
 </div>
+
+<div id="fs" hidden>
+  <div id="fs-stage"></div>
+  <div class="fs-top"><span class="fs-title">Prévia</span><button id="fs-close" class="icon" aria-label="Sair da tela cheia"></button></div>
+  <div class="fs-bottom">
+    <div id="fs-bar" role="slider" aria-label="Posição do vídeo"><div class="fs-track"><div id="fs-fill"></div></div><div id="fs-knob"></div></div>
+    <div class="fs-ctrls">
+      <span id="fs-cur" class="fs-t">00:00.0</span>
+      <div class="fs-mid">
+        <button id="fs-back" class="icon" aria-label="Voltar 5 segundos"></button>
+        <button id="fs-play" class="play" aria-label="Reproduzir"></button>
+        <button id="fs-fwd" class="icon" aria-label="Avançar 5 segundos"></button>
+      </div>
+      <span id="fs-tot" class="fs-t r">00:00.0</span>
+    </div>
+  </div>
+</div>
+
 <div id="toast"></div>
 <div id="vpool"></div>
 
 <input type="file" id="file-video" accept="video/*" multiple hidden>
 <input type="file" id="file-layer" accept="image/*,video/*" multiple hidden>
 <input type="file" id="file-audio" accept="video/*,audio/*" hidden>
-<script type="module" src="app.js?v=12"></script>
+<script type="module" src="app.js?v=13"></script>
 </body>
 </html>
