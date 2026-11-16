@@ -2586,9 +2586,11 @@ function exportReady(blob, type) {
   // abre a janela de salvar/compartilhar sozinha; se o iPhone bloquear (sem toque recente), fica o botão Baixar
   saveExport(lastExport).then((ok) => { if (!ok) toast('Vídeo pronto! Toque em Baixar'); });
 }
+// celular/tablet: abre o compartilhar (Salvar vídeo). Computador: baixa direto, porque o compartilhar do Mac/Windows não tem "salvar".
+const isMobile = () => /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
 async function saveExport(x) {
   const file = new File([x.blob], x.name, { type: x.type });
-  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+  if (isMobile() && navigator.canShare && navigator.canShare({ files: [file] })) {
     try { await navigator.share({ files: [file] }); return true; } catch (e) { if (e.name === 'AbortError') return true; if (e.name === 'NotAllowedError') return false; }
   }
   const a = document.createElement('a'); a.href = x.url; a.download = x.name; document.body.appendChild(a); a.click(); a.remove();
@@ -2760,7 +2762,7 @@ document.fonts.ready.then(draw);
 ensureFonts().then(draw);
 try { navigator.storage?.persist?.(); } catch {}
 // versão do app: aparece pequena ao lado do nome, para conferir se atualizou
-const APP_VERSION = 15;
+const APP_VERSION = 16;
 { const b = document.querySelector('.brand-ver'); if (b) b.textContent = 'v' + APP_VERSION; }
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   // sempre procura a versão nova (sem usar cache) e recarrega sozinho quando ela chega
