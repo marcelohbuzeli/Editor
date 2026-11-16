@@ -5,6 +5,8 @@
 //   2) Adicionar texto: layouts de título prontos, desenhados com as fontes e cores do modelo.
 // Marcação: palavras entre asteriscos são destaque. Ex.: "isso muda *tudo*". Quebra de linha = nova linha.
 
+import { makePlan, sliceState, applyState } from './animacoes.js?v=20';
+
 const F = {
   poppins: "'Poppins', sans-serif",
   inter: "'Inter', sans-serif",
@@ -97,12 +99,42 @@ function scribble(ctx, x0, x1, y, amp, p, color, lw) {
 // Texto com espaçamento entre letras (desenhado letra por letra; funciona em qualquer navegador)
 function spacedWidth(ctx, s, sp) { let w = 0; for (const ch of s) w += ctx.measureText(ch).width + sp; return Math.max(0, w - sp); }
 
+// ---------- Animação por pedaço (presets do VysmoText) ----------
+// Quando FX está ativo, cada "unidade" desenhada por um layout (palavra, linha, letra, etiqueta, rabisco)
+// recebe o estado da animação escolhida, com o escalonamento entre as unidades.
+let FX = null;
+function U(ctx, x, y, w, h, fn) {
+  if (!FX) return fn();
+  if (FX.counting) { FX.n++; return; }
+  const i = FX.i++; if (i >= FX.P.n) return fn();
+  ctx.save(); if (applyState(ctx, sliceState(FX.P, i, FX.t), { x, y, w, h }, FX.k, FX.P.pr.p)) fn(); ctx.restore();
+}
+const probeCtx = () => (probeCtx.c ??= document.createElement('canvas').getContext('2d'));
+const counts = new Map();
+export function countUnits(tpl, layoutId, text, B, maxW) {
+  const key = [tpl.id, layoutId, text, Math.round(B), Math.round(maxW)].join('|');
+  if (counts.has(key)) return counts.get(key);
+  FX = { counting: true, n: 0 };
+  try { drawLayout(probeCtx(), tpl, layoutId, text, 99, B, maxW); } finally { var n = FX.n; FX = null; }
+  if (counts.size > 200) counts.clear(); counts.set(key, n); return n;
+}
+// phase = { P, t } de animacoes.layerPhase. k = escala dos deslocamentos (px da fonte / 48).
+export function drawLayoutFx(ctx, tpl, layoutId, text, B, maxW, phase, k) {
+  FX = { P: phase.P, t: phase.t, k, i: 0 };
+  try { return drawLayout(ctx, tpl, layoutId, text, 99, B, maxW); } finally { FX = null; }
+}
+// Entrada das palavras na legenda: cada palavra anima a partir do instante em que é falada
+function capWordFx(ctx, anim, n, i, dt, box, k, fn) {
+  const P = makePlan(anim, n, 7, { noStagger: true });
+  ctx.save(); if (applyState(ctx, sliceState(P, i, dt * 1000), box, k, anim.p)) fn(); ctx.restore();
+}
+
 // ---------- Modelo de legenda ----------
 // ctx já está transladado para o centro do bloco. times[i] = instante (tempo de origem) em que a palavra i é falada.
-export function drawCapTpl(ctx, W, tpl, toks, times, s, fs, upper) {
+export function drawCapTpl(ctx, W, tpl, toks, times, s, fs, upper, anim) {
   if (!toks.length) return;
   const first = toks.findIndex((t) => t.hl);
-  if (first < 0) return drawCapRun(ctx, W, tpl, toks, times, s, fs, upper);
+  if (first < 0) return drawCapRun(ctx, W, tpl, toks, times, s, fs, upper, anim);
   let last = first; toks.forEach((t, i) => { if (t.hl) last = i; });
   const pre = toks.slice(0, first), mid = toks.slice(first, last + 1), post = toks.slice(last + 1);
   const tPre = times.slice(0, first), tMid = times[first], tPost = times.slice(last + 1);
@@ -120,20 +152,21 @@ export function drawCapTpl(ctx, W, tpl, toks, times, s, fs, upper) {
   let y = -totalH / 2;
   for (const r of rows) {
     const cy = y + r.h / 2;
-    if (r.k === 'small') smallRow(ctx, tpl, pre, tPre, s, small, cy, upper);
-    else if (r.k === 'small2') smallRow(ctx, tpl, post, tPost, s, small, cy, upper);
+    if (r.k === 'small') smallRow(ctx, tpl, pre, tPre, s, small, cy, upper, anim);
+    else if (r.k === 'small2') smallRow(ctx, tpl, post, tPost, s, small, cy, upper, anim);
     else bigCombo(ctx, tpl, bigTxt, tMid, s, big, cy);
     y += r.h + gapS;
   }
 }
-function smallRow(ctx, tpl, toks, times, s, px, cy, upper) {
+function smallRow(ctx, tpl, toks, times, s, px, cy, upper, anim) {
   const b = tpl.base;
   ctx.font = fnt(b.font, b.weight, px); ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
   const sp = ctx.measureText(' ').width, ws = toks.map((t) => ctx.measureText(up(t.t, upper)).width);
   let x = -(ws.reduce((a, w) => a + w, 0) + sp * (toks.length - 1)) / 2;
   toks.forEach((t, i) => {
     const p = (s - times[i]) / 0.2;
-    if (p > 0) {
+    if (anim) capWordFx(ctx, anim, toks.length, i, s - times[i], { x, y: cy - px / 2, w: ws[i], h: px }, px / 48, () => { shadowOn(ctx, px); ctx.fillStyle = b.color; ctx.fillText(up(t.t, upper), x + ws[i] / 2, cy); });
+    else if (p > 0) {
       ctx.save(); ctx.globalAlpha *= eOut(p * 1.4); ctx.translate(x + ws[i] / 2, cy + (1 - eOut(p)) * px * 0.35);
       shadowOn(ctx, px); ctx.fillStyle = b.color; ctx.textAlign = 'center'; ctx.fillText(up(t.t, upper), 0, 0); ctx.restore();
     }
@@ -172,7 +205,7 @@ function bigCombo(ctx, tpl, txt, t0, s, px, cy) {
   ctx.restore();
 }
 // Legenda corrida: palavra por palavra, a palavra falada no momento ganha a cor de destaque do modelo
-function drawCapRun(ctx, W, tpl, toks, times, s, fs, upper) {
+function drawCapRun(ctx, W, tpl, toks, times, s, fs, upper, anim) {
   const b = tpl.base, maxW = W * 0.86;
   ctx.font = fnt(b.font, b.weight, fs); ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
   const sp = ctx.measureText(' ').width, ws = toks.map((t) => ctx.measureText(up(t.t, upper)).width);
@@ -185,7 +218,8 @@ function drawCapRun(ctx, W, tpl, toks, times, s, fs, upper) {
     let x = -ln.w / 2;
     for (const i of ln.ids) {
       const p = (s - times[i]) / 0.22;
-      if (p > 0) {
+      if (anim) capWordFx(ctx, anim, toks.length, i, s - times[i], { x, y: y - fs / 2, w: ws[i], h: fs }, fs / 48, () => { shadowOn(ctx, fs, 0.6); ctx.fillStyle = i === active ? b.active : b.color; ctx.fillText(up(toks[i].t, upper), x + ws[i] / 2, y); });
+      else if (p > 0) {
         const sc = 0.62 + 0.38 * eBack(p);
         ctx.save(); ctx.translate(x + ws[i] / 2, y); ctx.scale(sc, sc); ctx.globalAlpha *= eOut(p * 1.6);
         shadowOn(ctx, fs, 0.6); ctx.fillStyle = i === active ? b.active : b.color; ctx.fillText(up(toks[i].t, upper), 0, 0); ctx.restore();
@@ -223,11 +257,14 @@ const DRAW = {
         let x = -r.w / 2;
         r.ln.forEach((t, j) => {
           const label = up(t.t, d.upper), cx = x + r.ws[j] / 2;
-          if (t.hl) {
-            const q = eOut((lt - i * 0.12 - 0.18) / 0.3), padX = px * 0.12, bh = px * 1.08;
-            shadowOff(ctx); ctx.fillStyle = tpl.accent; roundRect(ctx, x - padX, -bh / 2, (r.ws[j] + padX * 2) * q, bh, px * 0.06); ctx.fill();
-            ctx.fillStyle = q > 0.5 ? tpl.ink : tpl.paper; ctx.fillText(label, cx, px * 0.03);
-          } else { shadowOn(ctx, px, 0.45); ctx.fillStyle = tpl.paper; ctx.fillText(label, cx, px * 0.03); }
+          const wx = x, ww = r.ws[j];
+          U(ctx, wx, -px / 2, ww, px, () => {
+            if (t.hl) {
+              const q = eOut((lt - i * 0.12 - 0.18) / 0.3), padX = px * 0.12, bh = px * 1.08;
+              shadowOff(ctx); ctx.fillStyle = tpl.accent; roundRect(ctx, wx - padX, -bh / 2, (ww + padX * 2) * q, bh, px * 0.06); ctx.fill();
+              ctx.fillStyle = q > 0.5 ? tpl.ink : tpl.paper; ctx.fillText(label, cx, px * 0.03);
+            } else { shadowOn(ctx, px, 0.45); ctx.fillStyle = tpl.paper; ctx.fillText(label, cx, px * 0.03); }
+          });
           x += r.ws[j] + sp;
         });
         ctx.restore();
@@ -249,7 +286,7 @@ const DRAW = {
       if (p > 0) {
         const sc = 0.8 + 0.2 * eBack(p);
         ctx.save(); ctx.translate(0, y); ctx.scale(sc, sc); ctx.globalAlpha *= eOut(p * 1.4); ctx.font = fnt(d.font, d.weight, px, d.italic);
-        shadowOn(ctx, px, 0.45); ctx.fillStyle = ln.some((t) => t.hl) ? tpl.accent : tpl.paper; ctx.fillText(lineStr(ln, d.upper), 0, 0); ctx.restore();
+        U(ctx, -ws[i] / 2, -px / 2, ws[i], px, () => { shadowOn(ctx, px, 0.45); ctx.fillStyle = ln.some((t) => t.hl) ? tpl.accent : tpl.paper; ctx.fillText(lineStr(ln, d.upper), 0, 0); }); ctx.restore();
       }
       y += lh;
     });
@@ -261,7 +298,7 @@ const DRAW = {
         const top = -H / 2 + spx * 0.3;
         ctx.save(); ctx.translate(-ws[0] * 0.12, top - spx * 0.05); ctx.rotate(-7 * Math.PI / 180);
         ctx.beginPath(); ctx.rect(-sw / 2 - spx, -spx * 1.5, (sw + spx * 2) * eOut(q), spx * 3); ctx.clip();
-        shadowOn(ctx, spx, 0.55); ctx.fillStyle = tpl.accent; ctx.fillText(scriptTxt, 0, 0); ctx.restore();
+        U(ctx, -sw / 2, -spx / 2, sw, spx, () => { shadowOn(ctx, spx, 0.55); ctx.fillStyle = tpl.accent; ctx.fillText(scriptTxt, 0, 0); }); ctx.restore();
       }
     }
     return { w: Math.max(sw, ...ws) + px * 0.3, h: H + (scriptTxt ? spx * 0.6 : 0) };
@@ -279,9 +316,11 @@ const DRAW = {
       ctx.font = fnt(tpl.sans.font, 700, tpx); const label = up(tag.map((t) => t.t).join(' '), true), sp = tpx * 0.14;
       const tw = spacedWidth(ctx, label, sp) + tpx * 1.4;
       ctx.save(); ctx.globalAlpha *= p; ctx.translate(0, y + th / 2); ctx.scale(0.6 + 0.4 * p, 0.6 + 0.4 * p);
-      shadowOff(ctx); ctx.fillStyle = tpl.accent; roundRect(ctx, -tw / 2, -th / 2, tw, th, th / 2); ctx.fill();
-      ctx.fillStyle = tpl.combo === 'serif' ? '#FFFFFF' : tpl.ink; ctx.textAlign = 'left';
-      let x = -tw / 2 + tpx * 0.7; for (const ch of label) { ctx.fillText(ch, x, tpx * 0.05); x += ctx.measureText(ch).width + sp; }
+      U(ctx, -tw / 2, -th / 2, tw, th, () => {
+        shadowOff(ctx); ctx.fillStyle = tpl.accent; roundRect(ctx, -tw / 2, -th / 2, tw, th, th / 2); ctx.fill();
+        ctx.fillStyle = tpl.combo === 'serif' ? '#FFFFFF' : tpl.ink; ctx.textAlign = 'left';
+        let x = -tw / 2 + tpx * 0.7; for (const ch of label) { ctx.fillText(ch, x, tpx * 0.05); x += ctx.measureText(ch).width + sp; }
+      });
       ctx.restore(); y += th + tpx * 0.7;
     }
     y += lh / 2;
@@ -289,12 +328,12 @@ const DRAW = {
       const p = (lt - 0.12 - i * 0.1) / 0.4;
       if (p > 0) {
         ctx.save(); ctx.translate(0, y + (1 - eOut(p)) * px * 0.4); ctx.globalAlpha *= eOut(p * 1.4); ctx.font = fnt(d.font, d.weight, px, d.italic);
-        shadowOn(ctx, px, 0.45); ctx.fillStyle = ln.some((t) => t.hl) ? tpl.accent : tpl.paper; ctx.fillText(lineStr(ln, d.upper), 0, 0); ctx.restore();
+        U(ctx, -ws[i] / 2, -px / 2, ws[i], px, () => { shadowOn(ctx, px, 0.45); ctx.fillStyle = ln.some((t) => t.hl) ? tpl.accent : tpl.paper; ctx.fillText(lineStr(ln, d.upper), 0, 0); }); ctx.restore();
       }
       y += lh;
     });
-    const lw = ws[ws.length - 1];
-    scribble(ctx, -lw / 2, lw / 2, y - lh / 2 + px * 0.05, px * 0.07, (lt - 0.45) / 0.45, tpl.accent, Math.max(2, B * 0.08));
+    const lw = ws[ws.length - 1], sy = y - lh / 2 + px * 0.05;
+    U(ctx, -lw / 2, sy - px * 0.1, lw, px * 0.2, () => scribble(ctx, -lw / 2, lw / 2, sy, px * 0.07, (lt - 0.45) / 0.45, tpl.accent, Math.max(2, B * 0.08)));
     return { w: Math.max(maxW, tag ? 0 : 0) + px * 0.3, h: H };
   },
   // Sans bold + palavras marcadas em serifa itálica na cor de destaque, palavra por palavra
@@ -316,7 +355,7 @@ const DRAW = {
           const sc = 0.6 + 0.4 * eBack(p);
           ctx.save(); ctx.translate(x + t.w / 2, y); ctx.scale(sc, sc); ctx.globalAlpha *= eOut(p * 1.5); ctx.font = fontOf(t);
           if (t.hl && tpl.combo === 'serif') { ctx.shadowColor = tpl.accent; ctx.shadowBlur = hx * 0.35; } else shadowOn(ctx, sx, 0.5);
-          ctx.fillStyle = t.hl ? tpl.accent : tpl.paper; ctx.fillText(t.t, 0, t.hl ? hx * 0.02 : 0); ctx.restore();
+          ctx.fillStyle = t.hl ? tpl.accent : tpl.paper; U(ctx, -t.w / 2, -hx / 2, t.w, hx, () => ctx.fillText(t.t, 0, t.hl ? hx * 0.02 : 0)); ctx.restore();
         }
         x += t.w + sp;
       }
@@ -337,8 +376,11 @@ const DRAW = {
       ctx.save(); ctx.globalAlpha *= eOut(p * 1.4) * (e ? (e === 1 ? 0.6 : 0.3) : 1);
       ctx.translate(0, e * off * eOut(p));
       label.forEach((s, i) => {
-        if (e) { shadowOff(ctx); ctx.lineWidth = Math.max(1.5, px * 0.025); ctx.strokeStyle = hl[i] ? tpl.accent : tpl.paper; ctx.strokeText(s, 0, y); }
-        else { shadowOn(ctx, px, 0.45); ctx.fillStyle = hl[i] ? tpl.accent : tpl.paper; ctx.fillText(s, 0, y); }
+        const yy = y;
+        U(ctx, -ws[i] / 2, yy - px / 2, ws[i], px, () => {
+          if (e) { shadowOff(ctx); ctx.lineWidth = Math.max(1.5, px * 0.025); ctx.strokeStyle = hl[i] ? tpl.accent : tpl.paper; ctx.strokeText(s, 0, yy); }
+          else { shadowOn(ctx, px, 0.45); ctx.fillStyle = hl[i] ? tpl.accent : tpl.paper; ctx.fillText(s, 0, yy); }
+        });
         y += lh;
       });
       ctx.restore();
@@ -358,7 +400,7 @@ const DRAW = {
       for (const ch of r) {
         const p = (lt - k * 0.035) / 0.12; k++;
         const w = ctx.measureText(ch.c).width;
-        if (p > 0) { ctx.save(); ctx.globalAlpha *= eOut(p); shadowOn(ctx, px, 0.55); ctx.fillStyle = ch.hl ? tpl.accent : tpl.paper; ctx.fillText(ch.c, x, y + (1 - eOut(p)) * px * 0.3); ctx.restore(); }
+        if (p > 0 && ch.c.trim()) { const cx0 = x; ctx.save(); ctx.globalAlpha *= eOut(p); shadowOn(ctx, px, 0.55); ctx.fillStyle = ch.hl ? tpl.accent : tpl.paper; U(ctx, cx0, y - px / 2, w, px, () => ctx.fillText(ch.c, cx0, y + (1 - eOut(p)) * px * 0.3)); ctx.restore(); }
         x += w + sp;
       }
       y += lh;

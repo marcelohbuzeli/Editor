@@ -1,7 +1,9 @@
 // Meu Editor — editor de vídeo simples para iPhone (PWA)
 // Tudo roda no aparelho: nada é enviado para servidores (exceto se usar a transcrição via Groq).
 
-import { TEMPLATES, LAYOUTS, tplById, layoutById, parseMarked, stripMarks, drawCapTpl, drawLayout, drawPreview, loadTemplateFonts } from './estilos.js?v=19';
+import { TEMPLATES, LAYOUTS, tplById, layoutById, parseMarked, stripMarks, drawCapTpl, drawLayout, drawLayoutFx, countUnits, drawPreview, loadTemplateFonts } from './estilos.js?v=20';
+import { ANIM_GROUPS, presetsOf, presetByName, animLabel, SPLIT_LABEL, layerPhase, hasAnim, splitSlices, sliceState, applyState, makePlan, emphasisTime } from './animacoes.js?v=20';
+const seedOf = (id) => { let h = 7; for (const c of String(id)) h = (h * 31 + c.charCodeAt(0)) >>> 0; return h % 100000; };
 
 const $ = (s, el = document) => el.querySelector(s);
 const uid = () => Math.random().toString(36).slice(2, 10);
@@ -497,7 +499,7 @@ function drawCaption(ctx, W, H, text, cap, s) {
   if (tpl) {
     // modelo de legenda: palavra por palavra, com a combinação de fontes nos destaques (*palavra*)
     const toks = parseMarked(text);
-    drawCapTpl(ctx, W, tpl, toks, capTimes(cap, toks.length), stillPreview ? 1e9 : (s ?? 1e9), fs, c.upper);
+    drawCapTpl(ctx, W, tpl, toks, capTimes(cap, toks.length), stillPreview ? 1e9 : (s ?? 1e9), fs, c.upper, presetByName(c.anim));
     ctx.restore(); return;
   }
   text = stripMarks(text);
@@ -1588,8 +1590,12 @@ function drawTextLayer(ctx, W, H, L, t, pre) {
   if (tpl) {
     // texto de modelo: layout pronto com as fontes, cores e animação do modelo
     const len = L.out - L.in, lt = stillPreview ? Math.max(t - L.start, 2) : t - L.start, B = (L.size || 80) * Math.min(W, H) / 1080;
-    ctx.globalAlpha = op * (stillPreview ? 1 : clamp((len - lt) / 0.25, 0, 1));
-    const box = drawLayout(ctx, tpl, L.layout, L.text, lt, B, W * 0.86);
+    const anim = !stillPreview && hasAnim(L.anim) ? L.anim : null;
+    ctx.globalAlpha = op * (stillPreview || anim?.out ? 1 : clamp((len - lt) / 0.25, 0, 1));
+    const n = anim ? countUnits(tpl, L.layout, L.text, B, W * 0.86) : 0;
+    const ph = anim && n ? layerPhase(anim, () => n, lt, len, seedOf(L.id)) : null;
+    const box = ph ? drawLayoutFx(ctx, tpl, L.layout, L.text, B, W * 0.86, ph, B / 48)
+      : drawLayout(ctx, tpl, L.layout, L.text, anim?.in ? 99 : lt, B, W * 0.86);
     const bw = box.w, bh = box.h, seld = pre && S.sel?.type === 'layer' && S.sel.id === L.id && !E.playing && !FSP.on;
     if (seld) { ctx.globalAlpha = 1; ctx.shadowColor = 'transparent'; ctx.strokeStyle = '#b48cff'; ctx.lineWidth = 2 / sc; ctx.setLineDash([6 / sc, 4 / sc]); ctx.strokeRect(-bw / 2 - 4, -bh / 2 - 4, bw + 8, bh + 8); }
     ctx.restore();
@@ -1608,7 +1614,18 @@ function drawTextLayer(ctx, W, H, L, t, pre) {
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = L.color || '#FFFFFF';
     if (L.shadow && !L.bg) { ctx.shadowColor = 'rgba(0,0,0,.7)'; ctx.shadowBlur = 12 * m.k; }
     let y = -(m.lines.length - 1) * m.lh / 2;
-    for (const ln of m.lines) { ctx.fillText(ln, 0, y); y += m.lh; }
+    const anim = !stillPreview && hasAnim(L.anim) ? L.anim : null;
+    if (anim) {
+      // animação por pedaço (letra, palavra ou linha, conforme o preset)
+      const pos = m.lines.map((ln, i) => { const w = ctx.measureText(ln).width; return { text: ln, x: -w / 2, y: y + i * m.lh, w }; });
+      const sl = {}; const slicesOf = (pr) => (sl[pr.s] ??= splitSlices(ctx, pos, pr.s, m.lh));
+      const len = L.out - L.in, ph = layerPhase(anim, (pr) => slicesOf(pr).length, t - L.start, len, seedOf(L.id));
+      ctx.textAlign = 'left';
+      if (ph) slicesOf(ph.P.pr).forEach((q, i) => {
+        ctx.save(); if (applyState(ctx, sliceState(ph.P, i, ph.t), { x: q.x, y: q.y - q.h / 2, w: q.w, h: q.h }, m.fs / 48, ph.P.pr.p)) ctx.fillText(q.s, q.x, q.y); ctx.restore();
+      });
+      else for (const q of pos) ctx.fillText(q.text, q.x, q.y);
+    } else for (const ln of m.lines) { ctx.fillText(ln, 0, y); y += m.lh; }
   }
   const seld = pre && S.sel?.type === 'layer' && S.sel.id === L.id && !E.playing && !FSP.on;
   if (seld) { ctx.globalAlpha = 1; ctx.shadowColor = 'transparent'; ctx.strokeStyle = '#b48cff'; ctx.lineWidth = 2 / sc; ctx.setLineDash([6 / sc, 4 / sc]); ctx.strokeRect(-bw / 2 - 4, -bh / 2 - 4, bw + 8, bh + 8); }
@@ -1644,6 +1661,7 @@ function openTextSheet(id, fresh = false) {
     ${rangeRow('ld', 'Duração', 0.5, 60, 0.1, L.out - L.in, sec)}
     <div class="row"><label>Sombra</label><span class="spacer"></span><input type="checkbox" class="tg" id="tx-shadow" ${L.shadow ? 'checked' : ''}></div>
     <div class="row"><label>Maiúsculas</label><span class="spacer"></span><input type="checkbox" class="tg" id="tx-upper" ${L.upper ? 'checked' : ''}></div>
+    <button class="btn" id="l-anim">${inlineIc('zap')} Animação: ${esc(animSummary(L.anim))}</button>
     <button class="btn" id="l-kf">${inlineIc('key')} Animar com keyframes</button>
     <p class="note">O texto fica numa camada própria, por cima do vídeo, e não muda as legendas automáticas. Arraste na prévia para mover; com dois dedos, aumenta ou diminui.</p>`,
   (b) => {
@@ -1670,6 +1688,7 @@ function openTextSheet(id, fresh = false) {
       ld: { set: (v) => (L.out = L.in + v), fmt: sec, after: renderTimeline },
     });
     $('#l-kf', b).onclick = openKfSheet;
+    $('#l-anim', b).onclick = () => openAnimSheet({ title: 'Animação do texto', sample: stripMarks(L.text).split('\n')[0].slice(0, 24) || 'Seu texto', get: () => L.anim, set: (a) => { L.anim = a; }, back: () => openTextSheet(L.id) });
     loadF();
   });
 }
@@ -1686,7 +1705,8 @@ function openTplTextSheet(L, T, fresh) {
     ${rangeRow('lx', 'Horizontal', 0, 100, 1, Math.round(kfGet(T, 'x') * 100), pctf)}
     ${rangeRow('ly', 'Vertical', 0, 100, 1, Math.round(kfGet(T, 'y') * 100), pctf, 40)}
     ${rangeRow('ld', 'Duração', 0.5, 60, 0.1, L.out - L.in, sec)}
-    <button class="btn" id="l-replay">${inlineIc('zap')} Ver a animação</button>
+    <button class="btn" id="l-anim">${inlineIc('zap')} Animação: ${esc(animSummary(L.anim))}</button>
+    <button class="btn" id="l-replay">${inlineIc('right')} Ver a animação</button>
     <button class="btn" id="l-kf">${inlineIc('key')} Animar com keyframes</button>`,
   (b) => {
     const ta = $('#tx-text', b); let pend = null, tlT = 0;
@@ -1704,6 +1724,7 @@ function openTplTextSheet(L, T, fresh) {
       ld: { set: (v) => (L.out = L.in + v), fmt: sec, after: renderTimeline },
     });
     $('#l-replay', b).onclick = () => { seekTo(L.start + 0.001); play(); };
+    $('#l-anim', b).onclick = () => openAnimSheet({ title: 'Animação do texto', sample: stripMarks(L.text).split('\n')[0].slice(0, 24) || 'Seu texto', get: () => L.anim, set: (a) => { L.anim = a; }, back: () => openTplTextSheet(L, T) });
     $('#l-kf', b).onclick = openKfSheet;
     paintPreviews(b);
   });
@@ -2113,6 +2134,67 @@ function openCaptions(tab, focusId) {
   });
 }
 const textTpl = () => tplById(prefs.textTpl) || tplById(S.cap.tpl) || TEMPLATES[0];
+const animSummary = (a, groups = ['in', 'out', 'emph']) => {
+  const parts = groups.map((g) => a?.[g] ? animLabel(a[g]) : null).filter(Boolean);
+  return parts.length ? parts.join(' · ') : 'Nenhuma';
+};
+// Escolha de animação (presets do VysmoText): abas Entrada / Saída / Ênfase, busca e prévia ao vivo.
+// cfg: { title, get() -> {in,out,emph}, set(obj), groups: ['enter','exit','emphasis'], sample, back() }
+let animTab = 'enter', animQuery = '';
+function openAnimSheet(cfg) {
+  const groups = cfg.groups || ['enter', 'exit', 'emphasis'];
+  if (!groups.includes(animTab)) animTab = groups[0];
+  const key = { enter: 'in', exit: 'out', emphasis: 'emph' }[animTab];
+  const cur = cfg.get()?.[key] || null;
+  const q = animQuery.trim().toLowerCase();
+  const list = presetsOf(animTab).filter((p) => !q || animLabel(p.n).toLowerCase().includes(q));
+  const tabs = groups.length > 1 ? `<div class="tabs">${ANIM_GROUPS.filter(([g]) => groups.includes(g)).map(([g, l]) => `<button class="tab ${animTab === g ? 'on' : ''}" data-ag="${g}">${l}</button>`).join('')}</div>` : '';
+  const pr = presetByName(cur);
+  openSheet('anim', cfg.title || 'Animação', `
+    <button class="btn" id="an-back">${inlineIc('left')} Voltar</button>
+    ${tabs}
+    <canvas id="an-prev" class="an-prev"></canvas>
+    <p class="note" id="an-info">${pr ? `${esc(animLabel(cur))} · ${SPLIT_LABEL[pr.s] || ''}` : 'Sem animação nesta etapa.'}</p>
+    <input id="an-q" class="tx-in" type="search" placeholder="Buscar animação (${presetsOf(animTab).length})" value="${esc(animQuery)}">
+    <div class="chips an-list">
+      <button class="chip ${!cur ? 'on' : ''}" data-an="">Nenhuma</button>
+      ${list.map((p) => `<button class="chip ${cur === p.n ? 'on' : ''}" data-an="${p.n}">${esc(animLabel(p.n))}</button>`).join('')}
+    </div>
+    <p class="note">Animações do VysmoText (licença MIT). Toque para aplicar; a prévia mostra como fica.</p>`,
+  (b) => {
+    $('#an-back', b).onclick = () => cfg.back?.();
+    b.querySelectorAll('[data-ag]').forEach((el) => el.onclick = () => { animTab = el.dataset.ag; animQuery = ''; openAnimSheet(cfg); });
+    const qi = $('#an-q', b); let qt = 0;
+    qi.addEventListener('input', () => { animQuery = qi.value; clearTimeout(qt); qt = setTimeout(() => { openAnimSheet(cfg); const n = $('#an-q'); if (n) { n.focus(); n.setSelectionRange(n.value.length, n.value.length); } }, 250); });
+    let sel = cur;
+    b.querySelectorAll('[data-an]').forEach((el) => el.onclick = () => {
+      commit(); const a = { ...(cfg.get() || {}) }; a[key] = el.dataset.an || null; cfg.set(a); sel = a[key];
+      b.querySelectorAll('[data-an]').forEach((x) => x.classList.toggle('on', x === el));
+      const p2 = presetByName(sel); $('#an-info', b).textContent = p2 ? `${animLabel(sel)} · ${SPLIT_LABEL[p2.s] || ''}` : 'Sem animação nesta etapa.';
+      t0 = performance.now(); draw(); saveSoon();
+    });
+    // prévia ao vivo, em loop
+    const cv = $('#an-prev', b), dpr = window.devicePixelRatio || 1; let t0 = performance.now();
+    const loop = () => {
+      if (!cv.isConnected) return;
+      const W = cv.clientWidth, H = cv.clientHeight; if (cv.width !== Math.round(W * dpr)) { cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); }
+      const x = cv.getContext('2d'); x.setTransform(dpr, 0, 0, dpr, 0, 0); x.fillStyle = '#16111f'; x.fillRect(0, 0, W, H);
+      const fs = H * 0.34; x.font = `800 ${fs}px ${fontCss('Poppins')}`; x.textBaseline = 'middle'; x.fillStyle = '#fff';
+      const txt = cfg.sample || 'Seu texto aqui', w = x.measureText(txt).width, pos = [{ text: txt, x: (W - w) / 2, y: H / 2, w }];
+      const p = presetByName(sel);
+      if (!p) { x.textAlign = 'left'; x.fillText(txt, pos[0].x, pos[0].y); }
+      else {
+        const sl = splitSlices(x, pos, p.s, fs * 1.2), P = makePlan(p, sl.length, 3);
+        const el = performance.now() - t0, cyc = P.dur + 900;
+        let t = el % cyc; if (animTab === 'emphasis') t = emphasisTime(P, el % (P.cycle * ((p.r ?? 0) + 1) + 900));
+        x.textAlign = 'left';
+        sl.forEach((q, i) => { x.save(); if (applyState(x, sliceState(P, i, t), { x: q.x, y: q.y - q.h / 2, w: q.w, h: q.h }, fs / 48, p.p)) x.fillText(q.s, q.x, q.y); x.restore(); });
+      }
+      requestAnimationFrame(loop);
+    };
+    requestAnimationFrame(loop);
+  });
+}
 function paintPreviews(b) {
   loadTemplateFonts().then(() => requestAnimationFrame(() => {
     b.querySelectorAll('canvas[data-prev-cap]').forEach((cv) => drawPreview(cv, tplById(cv.dataset.prevCap), 'cap'));
@@ -2257,6 +2339,7 @@ function capStyleHTML() {
       <button class="tpl-card ${!tpl ? 'on' : ''}" data-tpl=""><canvas data-prev-plain></canvas><span>Simples</span></button>
       ${TEMPLATES.map((t) => `<button class="tpl-card ${tpl?.id === t.id ? 'on' : ''}" data-tpl="${t.id}"><canvas data-prev-cap="${t.id}"></canvas><span>${t.name}</span></button>`).join('')}
     </div>
+    ${tpl ? `<button class="btn" id="cap-anim">${inlineIc('zap')} Entrada das palavras: ${esc(c.anim ? animLabel(c.anim) : 'Padrão do modelo')}</button>` : ''}
     ${tpl ? `<button class="btn primary" id="cap-auto">${inlineIc('zap')} Destacar pontos altos automaticamente</button>
     <p class="note">${esc(tpl.desc)}. A fala corrida sai palavra por palavra na fonte base; nos pontos altos entra a combinação do modelo. Os destaques ficam entre *asteriscos* no texto (aba Legendas): marque ou desmarque à mão quando quiser.</p>` : ''}
     ${tpl ? '' : `<div class="sec">Fonte</div>
@@ -2289,6 +2372,8 @@ function bindCapStyle(b) {
   }
   b.querySelectorAll('[data-tpl]').forEach((el) => el.onclick = () => { commit(); c.tpl = el.dataset.tpl || null; savePrefs(); loadTemplateFonts().then(draw); openCaptions('estilo'); });
   const au = $('#cap-auto', b); if (au) au.onclick = () => autoHighlight(au);
+  const ca = $('#cap-anim', b);
+  if (ca) ca.onclick = () => openAnimSheet({ title: 'Entrada das palavras', groups: ['enter'], sample: 'isso muda tudo', get: () => ({ in: c.anim || null }), set: (a) => { c.anim = a.in || null; savePrefs(); }, back: () => openCaptions('estilo') });
   paintPreviews(b);
   $('#cap-upper', b).addEventListener('change', (e) => { commit(); c.upper = e.target.checked; draw(); });
   bindRanges(b, {
@@ -2973,7 +3058,7 @@ document.fonts.ready.then(draw);
 ensureFonts().then(draw);
 try { navigator.storage?.persist?.(); } catch {}
 // versão do app: aparece pequena ao lado do nome, para conferir se atualizou
-const APP_VERSION = 19;
+const APP_VERSION = 20;
 loadTemplateFonts().then(() => { try { draw(); } catch {} });
 { const b = document.querySelector('.brand-ver'); if (b) b.textContent = 'v' + APP_VERSION; }
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
