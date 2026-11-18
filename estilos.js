@@ -6,7 +6,7 @@
 // Marcação: palavras entre asteriscos são destaque. Ex.: "isso muda *tudo*". Quebra de linha = nova linha.
 // Combinação (modelo Elegante): *grande* + _manuscrito_. Ex.: "conteúdo é *profissão* _mais vida_".
 
-import { makePlan, sliceState, applyState } from './animacoes.js?v=21';
+import { makePlan, sliceState, applyState } from './animacoes.js?v=22';
 
 const F = {
   poppins: "'Poppins', sans-serif",

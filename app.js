@@ -1,8 +1,8 @@
 // Meu Editor — editor de vídeo simples para iPhone (PWA)
 // Tudo roda no aparelho: nada é enviado para servidores (exceto se usar a transcrição via Groq).
 
-import { TEMPLATES, LAYOUTS, tplById, layoutById, parseMarked, stripMarks, drawCapTpl, drawLayout, drawLayoutFx, countUnits, drawPreview, loadTemplateFonts } from './estilos.js?v=21';
-import { ANIM_GROUPS, presetsOf, presetByName, animLabel, SPLIT_LABEL, layerPhase, hasAnim, splitSlices, sliceState, applyState, makePlan, emphasisTime } from './animacoes.js?v=21';
+import { TEMPLATES, LAYOUTS, tplById, layoutById, parseMarked, stripMarks, drawCapTpl, drawLayout, drawLayoutFx, countUnits, drawPreview, loadTemplateFonts } from './estilos.js?v=22';
+import { ANIM_GROUPS, presetsOf, presetByName, animLabel, SPLIT_LABEL, layerPhase, hasAnim, splitSlices, sliceState, applyState, makePlan, emphasisTime } from './animacoes.js?v=22';
 const seedOf = (id) => { let h = 7; for (const c of String(id)) h = (h * 31 + c.charCodeAt(0)) >>> 0; return h % 100000; };
 
 const $ = (s, el = document) => el.querySelector(s);
@@ -3095,4 +3095,6 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
 updUndo(); refresh(); restoreProject();
 
 // para testes
-window.__corte = { S, renderMixdown, openFs, closeFs, importVideos, addAudioFromFile, play, pause, seekTo, transcribeAll, startExport, media, buffers, transSound, sfxBuffer, extractAudio, decodeMp4Aac, decodeAudio };
+// aplicarEstado: o agente do Marcelo mexe em S direto e chama isto para redesenhar e salvar o projeto.
+const aplicarEstado = () => { S.clips.forEach(normClip); refresh(); saveSoon(); return S.clips.length; };
+window.__corte = { S, aplicarEstado, renderMixdown, openFs, closeFs, importVideos, addAudioFromFile, play, pause, seekTo, transcribeAll, startExport, media, buffers, transSound, sfxBuffer, extractAudio, decodeMp4Aac, decodeAudio };
