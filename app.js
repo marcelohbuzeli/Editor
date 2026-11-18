@@ -1,8 +1,8 @@
 // Meu Editor — editor de vídeo simples para iPhone (PWA)
 // Tudo roda no aparelho: nada é enviado para servidores (exceto se usar a transcrição via Groq).
 
-import { TEMPLATES, LAYOUTS, tplById, layoutById, parseMarked, stripMarks, drawCapTpl, drawLayout, drawLayoutFx, countUnits, drawPreview, loadTemplateFonts } from './estilos.js?v=23';
-import { ANIM_GROUPS, presetsOf, presetByName, animLabel, SPLIT_LABEL, layerPhase, hasAnim, splitSlices, sliceState, applyState, makePlan, emphasisTime } from './animacoes.js?v=23';
+import { TEMPLATES, LAYOUTS, tplById, layoutById, parseMarked, stripMarks, drawCapTpl, drawLayout, drawLayoutFx, countUnits, drawPreview, loadTemplateFonts } from './estilos.js?v=24';
+import { ANIM_GROUPS, presetsOf, presetByName, animLabel, SPLIT_LABEL, layerPhase, hasAnim, splitSlices, sliceState, applyState, makePlan, emphasisTime } from './animacoes.js?v=24';
 const seedOf = (id) => { let h = 7; for (const c of String(id)) h = (h * 31 + c.charCodeAt(0)) >>> 0; return h % 100000; };
 
 const $ = (s, el = document) => el.querySelector(s);
@@ -2858,8 +2858,13 @@ async function startExport(res) {
   const [W, H] = outSize(res);
   const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
   const cx = cv.getContext('2d'); cx.fillStyle = '#000'; cx.fillRect(0, 0, W, H);
-  ac(); await actx.resume();
+  // sem um clique na página o Chrome não libera o áudio e resume() nunca termina: não espera para sempre
+  ac(); await Promise.race([actx.resume(), new Promise((r) => setTimeout(r, 1500))]);
   const codecs = await pickCodecs(W, H, res === '4k' ? 30_000_000 : 10_000_000);
+  if (!codecs && actx.state !== 'running') {
+    E.exporting = false; expUI(); expFalhou('o Chrome bloqueou o áudio: clique uma vez na página e exporte de novo');
+    return toast('Clique uma vez na página e exporte de novo', 3500);
+  }
   if (codecs) {
     const ex = { cv, cx, W, H, mime: 'video/mp4', res, cancelled: false, frames: true };
     E.exporting = true; E.exp = ex; E.playing = true; E.stalled = false; updPlay();
@@ -3106,7 +3111,7 @@ document.fonts.ready.then(draw);
 ensureFonts().then(draw);
 try { navigator.storage?.persist?.(); } catch {}
 // versão do app: aparece pequena ao lado do nome, para conferir se atualizou
-const APP_VERSION = 20;
+const APP_VERSION = 24;
 loadTemplateFonts().then(() => { try { draw(); } catch {} });
 { const b = document.querySelector('.brand-ver'); if (b) b.textContent = 'v' + APP_VERSION; }
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
