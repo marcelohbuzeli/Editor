@@ -343,3 +343,11 @@ body.sheet-open #btn-kf.ready { background: var(--accent); border-color: var(--a
 /* ---------- Animações de texto ---------- */
 .an-prev { width: 100%; height: 110px; border-radius: var(--r-xs); display: block; margin: 8px 0 4px; }
 .an-list { max-height: 34vh; overflow-y: auto; }
+
+/* Galeria de projetos */
+.gl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; margin-top: 10px; }
+.gl-card { display: flex; flex-direction: column; gap: 4px; padding: 6px; border-radius: var(--r-xs); background: var(--glass); border: 1.5px solid var(--line); color: var(--ink-2); font: 500 12px var(--font); text-align: left; cursor: pointer; }
+.gl-card.on { border-color: var(--accent); }
+.gl-card img, .gl-card .gl-sem { width: 100%; aspect-ratio: 9 / 16; object-fit: cover; border-radius: 6px; background: #000; }
+.gl-card b { color: var(--ink); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gl-card span { opacity: .7; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

@@ -1,8 +1,8 @@
 // Meu Editor — editor de vídeo simples para iPhone (PWA)
 // Tudo roda no aparelho: nada é enviado para servidores (exceto se usar a transcrição via Groq).
 
-import { TEMPLATES, LAYOUTS, tplById, layoutById, parseMarked, stripMarks, drawCapTpl, drawLayout, drawLayoutFx, countUnits, drawPreview, loadTemplateFonts } from './estilos.js?v=22';
-import { ANIM_GROUPS, presetsOf, presetByName, animLabel, SPLIT_LABEL, layerPhase, hasAnim, splitSlices, sliceState, applyState, makePlan, emphasisTime } from './animacoes.js?v=22';
+import { TEMPLATES, LAYOUTS, tplById, layoutById, parseMarked, stripMarks, drawCapTpl, drawLayout, drawLayoutFx, countUnits, drawPreview, loadTemplateFonts } from './estilos.js?v=23';
+import { ANIM_GROUPS, presetsOf, presetByName, animLabel, SPLIT_LABEL, layerPhase, hasAnim, splitSlices, sliceState, applyState, makePlan, emphasisTime } from './animacoes.js?v=23';
 const seedOf = (id) => { let h = 7; for (const c of String(id)) h = (h * 31 + c.charCodeAt(0)) >>> 0; return h % 100000; };
 
 const $ = (s, el = document) => el.querySelector(s);
@@ -45,6 +45,7 @@ const ICONS = {
   fade: '<rect x="3" y="3" width="18" height="18" rx="3"/><path d="M3 21 21 3M3 15l12-12M3 9l6-6"/>',
   wave: '<path d="M2 12h2M6 8v8M10 4v16M14 7v10M18 10v4M22 12h0"/>',
   layers: '<path d="m12 2 10 5-10 5L2 7z"/><path d="m2 17 10 5 10-5M2 12l10 5 10-5"/>',
+  grid: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
   contrast: '<circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor"/>',
   key: '<path d="M12 2.5 21.5 12 12 21.5 2.5 12z"/>',
   keyFill: '<path d="M12 2.5 21.5 12 12 21.5 2.5 12z" fill="currentColor"/>',
@@ -64,6 +65,7 @@ const COLORS = ['#FFFFFF', '#F7E8B0', '#FFD84D', '#000000'];
 const TPL_COLORS = ['#FFFFFF', '#EEF2F8', '#F1D3B0', '#F7E8B0', '#FFD84D', '#D7FF3A', '#FF6A3D', '#9DB4DE', '#2453C6', '#000000'];
 const fontCss = (id) => (FONTS.find((f) => f.id === id) || FONTS[0]).css;
 
+let galeria = null;   // dados do projeto aberto na galeria: { id, titulo, cliente, taskId, video, pasta, ... }
 const DEFAULT_CAP = { font: 'Poppins', weight: 700, size: 60, color: '#FFFFFF', shadow: 60, blur: 12, y: 0.75, upper: false };
 const DEFAULT_FX = {
   fadeIn: { on: false, dur: 0.5 }, fadeOut: { on: false, dur: 1.0 }, fadeAudio: true,
@@ -1593,7 +1595,7 @@ function drawTextLayer(ctx, W, H, L, t, pre) {
   const sc = kfVal(L, 'scale', s, L.scale ?? 1), lx = kfVal(L, 'x', s, L.x ?? 0.5) * W, ly = kfVal(L, 'y', s, L.y ?? 0.5) * H;
   const rot = kfVal(L, 'rot', s, L.rot ?? 0), op = clamp(kfVal(L, 'op', s, L.op ?? 1), 0, 1);
   ctx.save(); ctx.translate(lx, ly); if (rot) ctx.rotate(rot * Math.PI / 180); if (sc !== 1) ctx.scale(sc, sc);
-  const tpl = L.layout && tplById(L.tpl);
+  const tpl = L.layout && capTplOf({ tpl: L.tpl, tcolor: L.tcolor, tacc: L.tacc });
   if (tpl) {
     // texto de modelo: layout pronto com as fontes, cores e animação do modelo
     const len = L.out - L.in, lt = stillPreview ? Math.max(t - L.start, 2) : t - L.start, B = (L.size || 80) * Math.min(W, H) / 1080;
@@ -1708,6 +1710,7 @@ function openTplTextSheet(L, T, fresh) {
     <div class="chips">${TEMPLATES.map((t) => `<button class="chip ${L.tpl === t.id ? 'on' : ''}" data-tt="${t.id}">${t.name}</button>`).join('')}</div>
     <div class="sec">Layout</div>
     <div class="tpl-grid">${LAYOUTS.map((l) => `<button class="tpl-card ${L.layout === l.id ? 'on' : ''}" data-ll="${l.id}"><canvas data-prev-lay="${l.id}" data-tplid="${L.tpl}"></canvas><span>${l.name}</span></button>`).join('')}</div>
+    ${tplById(L.tpl) ? capTplColorsHTML(L, tplById(L.tpl), 'l') : ''}
     ${rangeRow('ts', 'Tamanho', 24, 240, 1, L.size, (v) => v, 80)}
     ${rangeRow('lx', 'Horizontal', 0, 100, 1, Math.round(kfGet(T, 'x') * 100), pctf)}
     ${rangeRow('ly', 'Vertical', 0, 100, 1, Math.round(kfGet(T, 'y') * 100), pctf, 40)}
@@ -1725,6 +1728,7 @@ function openTplTextSheet(L, T, fresh) {
       commit(); const was = layoutById(L.layout); if (!L.text.trim() || L.text === was?.sample) L.text = layoutById(el.dataset.ll).sample;
       L.layout = el.dataset.ll; draw(); renderTimeline(); openTplTextSheet(L, T);
     });
+    bindTplColors(b, L, 'l', renderTimeline);
     bindRanges(b, {
       ts: { set: (v) => (L.size = v), fmt: (v) => v },
       lx: { set: (v) => kfPut(T, 'x', v / 100), fmt: pctf, after: renderTimeline }, ly: { set: (v) => kfPut(T, 'y', v / 100), fmt: pctf, after: renderTimeline },
@@ -2364,10 +2368,24 @@ function capStyleHTML() {
     <div class="row"><label>Maiúsculas</label><span class="spacer"></span><input type="checkbox" class="tg" id="cap-upper" ${c.upper ? 'checked' : ''}></div>
     <p class="note">O estilo fica salvo como padrão para os próximos vídeos.</p>`;
 }
-function capTplColorsHTML(c, tpl) {
+// Cor do texto / Cor do destaque de um modelo. p = prefixo ('' legenda, 'l' texto de modelo).
+function capTplColorsHTML(c, tpl, p = '') {
   const row = (key, label, cur, def) => `<div class="sec">${label}</div>
-    <div class="chips"><button class="chip ${!cur ? 'on' : ''}" data-${key}="">Do modelo</button>${TPL_COLORS.map((x) => `<button class="sw ${(cur || '').toUpperCase() === x ? 'on' : ''}" data-${key}="${x}" style="background:${x}" aria-label="${label} ${x}"></button>`).join('')}<input type="color" id="cap-${key}" value="${cur || def}" aria-label="${label}: outra cor"></div>`;
+    <div class="chips"><button class="chip ${!cur ? 'on' : ''}" data-${p}${key}="">Do modelo</button>${TPL_COLORS.map((x) => `<button class="sw ${(cur || '').toUpperCase() === x ? 'on' : ''}" data-${p}${key}="${x}" style="background:${x}" aria-label="${label} ${x}"></button>`).join('')}<input type="color" id="cap-${p}${key}" value="${cur || def}" aria-label="${label}: outra cor"></div>`;
   return row('tcolor', 'Cor do texto', c.tcolor, tpl.base.color) + row('tacc', 'Cor do destaque', c.tacc, tpl.accent);
+}
+function bindTplColors(b, obj, p = '', after) {
+  for (const key of ['tcolor', 'tacc']) {
+    const attr = p + key, inp = $('#cap-' + attr, b); let pk = null;
+    b.querySelectorAll(`[data-${attr}]`).forEach((el) => el.onclick = () => {
+      commit(); const v = el.dataset[attr]; obj[key] = v || null; if (inp && v) inp.value = v;
+      b.querySelectorAll(`[data-${attr}]`).forEach((x) => x.classList.toggle('on', x === el)); draw(); after?.();
+    });
+    if (inp) {
+      inp.addEventListener('input', (e) => { if (!pk) pk = snap(); obj[key] = e.target.value.toUpperCase(); b.querySelectorAll(`[data-${attr}]`).forEach((x) => x.classList.remove('on')); draw(); });
+      inp.addEventListener('change', () => { if (pk) pushHist(pk); pk = null; after?.(); });
+    }
+  }
 }
 function bindCapStyle(b) {
   const c = S.cap;
@@ -2383,14 +2401,7 @@ function bindCapStyle(b) {
     cc.addEventListener('input', (e) => { if (!pend) pend = snap(); c.color = e.target.value.toUpperCase(); b.querySelectorAll('[data-color]').forEach((x) => x.classList.remove('on')); draw(); });
     cc.addEventListener('change', () => { if (pend) pushHist(pend); pend = null; });
   }
-  for (const key of ['tcolor', 'tacc']) {
-    pick(key, (v) => { c[key] = v || null; const inp = $('#cap-' + key, b); if (inp && v) inp.value = v; savePrefs(); });
-    const inp = $('#cap-' + key, b); let pk = null;
-    if (inp) {
-      inp.addEventListener('input', (e) => { if (!pk) pk = snap(); c[key] = e.target.value.toUpperCase(); b.querySelectorAll(`[data-${key}]`).forEach((x) => x.classList.remove('on')); draw(); });
-      inp.addEventListener('change', () => { if (pk) pushHist(pk); pk = null; savePrefs(); });
-    }
-  }
+  bindTplColors(b, c, '', savePrefs);
   b.querySelectorAll('[data-tpl]').forEach((el) => el.onclick = () => { commit(); c.tpl = el.dataset.tpl || null; savePrefs(); loadTemplateFonts().then(draw); openCaptions('estilo'); });
   const au = $('#cap-auto', b); if (au) au.onclick = () => autoHighlight(au);
   const ca = $('#cap-anim', b);
@@ -2840,7 +2851,7 @@ function expUI(st = expState()) {
 }
 async function startExport(res) {
   const mime = pickMime();
-  if (!mime || !HTMLCanvasElement.prototype.captureStream) return toast('Este navegador não consegue exportar vídeo', 3000);
+  if (!mime || !HTMLCanvasElement.prototype.captureStream) { expFalhou('este navegador não consegue exportar vídeo'); return toast('Este navegador não consegue exportar vídeo', 3000); }
   E.expSig = expSig(); E.exporting = true; expUI('run');
   $('#exp-st').textContent = 'Preparando…'; $('#exp-bar').style.width = '0%';
   await ensureFonts();
@@ -2858,6 +2869,7 @@ async function startExport(res) {
     E.playing = false; E.exporting = false; E.exp = null; E.rate = 1; updPlay();
     try { E.wake?.release(); } catch {}
     if (ex.cancelled || !blob) {
+      expFalhou(err || 'exportação cancelada');
       expUI();
       if (err) toast('Não consegui exportar: ' + (err.message || err), 4000);
       draw(); return;
@@ -2887,7 +2899,7 @@ function finishExport() {
     ex.rec.onstop = () => {
       E.exporting = false; E.exp = null; E.rec = null; updPlay();
       try { E.wake?.release(); } catch {}
-      if (ex.cancelled) { expUI(); return; }
+      if (ex.cancelled) { expFalhou('exportação cancelada'); expUI(); return; }
       const type = ex.mime.split(';')[0];
       exportReady(new Blob(ex.chunks, { type }), type);
     };
@@ -2895,11 +2907,22 @@ function finishExport() {
   }, 200);
 }
 function cancelExport() { if (!E.exp) return; E.exp.cancelled = true; if (!E.exp.frames) finishExport(); }
+let expEspera = null;   // exportarArquivo(): o agente recebe o vídeo pronto em vez de baixar
+function expFalhou(e) { if (expEspera) { const w = expEspera; expEspera = null; w.reject(e instanceof Error ? e : new Error(String(e || 'exportação cancelada'))); } }
+function exportarArquivo(res = '1080') {
+  return new Promise((resolve, reject) => {
+    if (E.exporting) return reject(new Error('já está exportando'));
+    if (!S.clips.length) return reject(new Error('projeto sem vídeo'));
+    expEspera = { resolve, reject };
+    openExport(); startExport(res).catch(expFalhou);
+  });
+}
 function exportReady(blob, type) {
   const ext = type.includes('mp4') ? 'mp4' : 'webm';
   if (lastExport) URL.revokeObjectURL(lastExport.url);
   lastExport = { blob, url: URL.createObjectURL(blob), name: `corte-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}.${ext}`, type, sig: E.expSig };
   if (sheetKind === 'export') expUI();
+  if (expEspera) { const w = expEspera; expEspera = null; w.resolve(new File([blob], lastExport.name, { type })); return; }
   // abre a janela de salvar/compartilhar sozinha; se o iPhone bloquear (sem toque recente), fica o botão Baixar
   saveExport(lastExport).then((ok) => { if (!ok) toast('Vídeo pronto! Toque em Baixar'); });
 }
@@ -2930,15 +2953,17 @@ const dbPut = (k, v) => dbOp('readwrite', (s) => s.put(v, k)).catch((e) => conso
 const dbGet = (k) => dbOp('readonly', (s) => s.get(k));
 let saveTimer = 0;
 function saveSoon() { clearTimeout(saveTimer); saveTimer = setTimeout(saveProject, 800); }
-function saveProject() {
+function saveProject() { dbPut('project', projetoObj()); if (galeria) galeriaSalvarSoon(); }
+function projetoObj() {
   const used = new Set([...S.clips.map((c) => c.mediaId), ...S.layers.filter((l) => l.kind === 'video').map((l) => l.srcId)]);
   const usedBuf = new Set(S.audios.map((a) => a.bufferId));
-  dbPut('project', {
+  return {
     v: 1, snap: snap(), words: S.words, aspect: S.aspect, t: S.t,
     media: [...media.values()].filter((m) => used.has(m.id)).map(({ url, ...m }) => m),
     images: [...images.values()].filter((im) => S.layers.some((l) => l.srcId === im.id)).map(({ id, name, w, h }) => ({ id, name, w, h })),
     buffers: [...buffers.entries()].filter(([id]) => usedBuf.has(id)).map(([id, b]) => ({ id, name: b.name, fileKey: b.fileKey })),
-  });
+    galeria,
+  };
 }
 async function restoreProject() {
   let p; try { p = await dbGet('project'); } catch { return; }
@@ -2962,14 +2987,14 @@ async function restoreProject() {
     S.layers = S.layers.filter((l) => (l.kind === 'adjust' || l.kind === 'text' ? true : l.kind === 'image' ? images.has(l.srcId) : media.has(l.srcId)));
     S.clips = S.clips.filter((c) => media.has(c.mediaId));
     S.audios = S.audios.filter((a) => buffers.has(a.bufferId));
-    S.words = p.words || {}; S.aspect = p.aspect; S.t = clamp(p.t || 0, 0, total());
+    S.words = p.words || {}; S.aspect = p.aspect; S.t = clamp(p.t || 0, 0, total()); galeria = p.galeria || null;
     toast('Projeto restaurado', 1200);
   } catch (e) { console.error(e); toast('Não consegui restaurar o projeto anterior', 2500); }
   refresh();
 }
 async function newProject() {
   if (S.clips.length && !confirm('Começar um projeto novo? O atual será apagado.')) return;
-  pause(); S.clips = []; S.audios = []; S.layers = []; S.zooms = []; images.forEach((im) => URL.revokeObjectURL(im.url)); images.clear(); S.captions = []; S.words = {}; S.aspect = null; S.t = 0; S.sel = null; S.origVolume = 1;
+  pause(); galeria = null; S.clips = []; S.audios = []; S.layers = []; S.zooms = []; images.forEach((im) => URL.revokeObjectURL(im.url)); images.clear(); S.captions = []; S.words = {}; S.aspect = null; S.t = 0; S.sel = null; S.origVolume = 1;
   media.forEach((m) => URL.revokeObjectURL(m.url)); media.clear(); buffers.clear(); hist.past = []; hist.future = [];
   pool.forEach((v) => { v._clipId = null; v._url = null; v.removeAttribute('src'); v.load(); });
   try { await dbOp('readwrite', (s) => s.clear()); } catch {}
@@ -3060,10 +3085,12 @@ $('#fs-close').innerHTML = ic('x');
 $('#fs-back').innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><text x="12" y="15.5" font-size="7" text-anchor="middle" fill="currentColor" stroke="none" font-weight="700">5</text></svg>';
 $('#fs-fwd').innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/><text x="12" y="15.5" font-size="7" text-anchor="middle" fill="currentColor" stroke="none" font-weight="700">5</text></svg>';
 $('#btn-new').innerHTML = ic('file');
+$('#btn-galeria').innerHTML = ic('grid');
 $('#btn-undo').innerHTML = ic('undo');
 $('#btn-redo').innerHTML = ic('redo');
 $('#sheet-close').innerHTML = ic('x');
 $('#btn-new').onclick = newProject;
+$('#btn-galeria').onclick = openGaleria;
 $('#btn-undo').onclick = undo;
 $('#btn-redo').onclick = redo;
 $('#btn-play').onclick = () => (E.playing ? (E.exporting ? null : pause()) : play());
@@ -3092,9 +3119,133 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   }).catch(() => {});
 }
 
-updUndo(); refresh(); restoreProject();
+updUndo(); refresh(); restoreProject().then(abrirDoLink);
 
 // para testes
+
+// ---------- Galeria de projetos ----------
+// Cada projeto fica no Supabase do Dashplasso: a lista em records (coleção editor_projetos, só dados leves) e o
+// projeto inteiro (+ miniatura) no espaço privado "projetos". Os vídeos brutos ficam no Drive e neste navegador;
+// ao abrir num navegador que não tem os vídeos, o Editor pede para escolher os arquivos (pelo nome).
+const SB = { url: 'https://icarqnbtxrntogfsyavv.supabase.co', key: 'sb_publishable_wQqGdpHuTtThE28o73IlNQ_qzV8WkYR' };
+async function sbSessao() {
+  const k = Object.keys(localStorage).find((x) => /^sb-.+-auth-token$/.test(x)); if (!k) return null;
+  let ses; try { ses = JSON.parse(localStorage.getItem(k)); } catch { return null; }
+  if (!ses?.access_token) return null;
+  if ((ses.expires_at || 0) * 1000 < Date.now() + 60000 && ses.refresh_token) {   // login vencido: renova (mesmo login do Dashplasso)
+    const r = await fetch(SB.url + '/auth/v1/token?grant_type=refresh_token', { method: 'POST', headers: { apikey: SB.key, 'Content-Type': 'application/json' }, body: JSON.stringify({ refresh_token: ses.refresh_token }) });
+    if (!r.ok) return null;
+    ses = await r.json(); ses.expires_at ??= Math.floor(Date.now() / 1000) + (ses.expires_in || 3600);
+    try { localStorage.setItem(k, JSON.stringify(ses)); } catch {}
+  }
+  return ses;
+}
+async function sbReq(path, opt = {}) {
+  const ses = await sbSessao(); if (!ses) throw new Error('Entre no Dashplasso neste navegador para usar a galeria.');
+  const r = await fetch(SB.url + path, { ...opt, headers: { apikey: SB.key, Authorization: 'Bearer ' + ses.access_token, ...(opt.headers || {}) } });
+  if (!r.ok) throw new Error('Galeria: ' + r.status + ' ' + (await r.text()).slice(0, 160));
+  return r;
+}
+const linkProjeto = (id) => location.origin + location.pathname.replace(/index\.html$/, '') + '?projeto=' + encodeURIComponent(id);
+function miniatura() {
+  if (!S.clips.length) return Promise.resolve(null);
+  const c = document.createElement('canvas'); c.width = 270; c.height = Math.round(270 * pv.height / pv.width);
+  c.getContext('2d').drawImage(pv, 0, 0, c.width, c.height);
+  return new Promise((res) => c.toBlob(res, 'image/jpeg', 0.75));
+}
+async function galeriaSalvar(meta = {}) {
+  const ses = await sbSessao(); if (!ses) throw new Error('Entre no Dashplasso neste navegador para usar a galeria.');
+  if (!S.clips.length) throw new Error('projeto sem vídeo');
+  const id = galeria?.id || meta.id || ('p' + Date.now().toString(36) + uid().slice(0, 4));
+  const agora = new Date().toISOString();
+  galeria = { criadoEm: agora, ...(galeria || {}), ...meta, id, atualizadoEm: agora, duracao: +total().toFixed(1),
+    brutos: [...new Set(S.clips.map((c) => media.get(c.mediaId)?.name).filter(Boolean))] };
+  const base = `${ses.user.id}/${id}`;
+  galeria.arquivo = base + '.json';
+  try { const th = await miniatura(); if (th) { await sbReq(`/storage/v1/object/projetos/${base}.jpg`, { method: 'POST', headers: { 'Content-Type': 'image/jpeg', 'x-upsert': 'true' }, body: th }); galeria.thumb = base + '.jpg'; } } catch (e) { console.warn('miniatura', e); }
+  const obj = projetoObj();
+  await sbReq(`/storage/v1/object/projetos/${base}.json`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-upsert': 'true' }, body: JSON.stringify(obj) });
+  await sbReq('/rest/v1/records?on_conflict=owner,collection,id', { method: 'POST', headers: { 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify({ collection: 'editor_projetos', id, data: galeria }) });
+  dbPut('project', obj);
+  return { id, link: linkProjeto(id) };
+}
+let galT = 0;
+function galeriaSalvarSoon() { clearTimeout(galT); galT = setTimeout(() => galeriaSalvar().catch((e) => console.warn('galeria', e.message)), 5000); }
+async function galeriaListar() {
+  const itens = (await (await sbReq('/rest/v1/records?collection=eq.editor_projetos&select=data&order=updated_at.desc')).json()).map((x) => x.data).filter(Boolean);
+  const th = itens.filter((i) => i.thumb).map((i) => i.thumb);
+  if (th.length) {
+    try {
+      const arr = await (await sbReq('/storage/v1/object/sign/projetos', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ expiresIn: 3600, paths: th }) })).json();
+      const m = new Map(arr.filter((a) => a.signedURL).map((a) => [a.path, SB.url + '/storage/v1' + a.signedURL]));
+      itens.forEach((i) => { i.thumbUrl = m.get(i.thumb) || null; });
+    } catch (e) { console.warn('miniaturas', e); }
+  }
+  return itens;
+}
+function pedirArquivos(faltam, titulo) {
+  return new Promise((resolve) => {
+    const pend = new Map(faltam.map((m) => [m.name, m]));
+    const lista = () => [...pend.keys()].map((n) => `<div class="cap-row"><span>${esc(n)}</span></div>`).join('');
+    openSheet('galeria', 'Reconectar vídeos', `
+      <p class="note">Para abrir “${esc(titulo || 'projeto')}” neste navegador, escolha estes arquivos (ficam na pasta do vídeo no Drive):</p>
+      <div id="gl-falta">${lista()}</div>
+      <input type="file" id="gl-arq" multiple accept="video/*,audio/*,image/*" style="display:none">
+      <button class="btn primary" id="gl-esc">Escolher arquivos</button><button class="btn" id="gl-canc">Cancelar</button>`, (b) => {
+      const inp = $('#gl-arq', b);
+      $('#gl-esc', b).onclick = () => inp.click();
+      $('#gl-canc', b).onclick = () => { closeSheet(); resolve(false); };
+      inp.onchange = async () => {
+        for (const f of inp.files) { const m = pend.get(f.name); if (m) { await dbPut('file:' + m.id, f); pend.delete(f.name); } }
+        $('#gl-falta', b).innerHTML = lista();
+        if (!pend.size) { closeSheet(); resolve(true); } else toast('Ainda falta(m) ' + pend.size + ' arquivo(s)', 2500);
+      };
+    });
+  });
+}
+async function galeriaAbrir(id) {
+  const it = (await (await sbReq(`/rest/v1/records?collection=eq.editor_projetos&id=eq.${encodeURIComponent(id)}&select=data`)).json())[0]?.data;
+  if (!it) throw new Error('Projeto não encontrado na galeria.');
+  const p = await (await sbReq(`/storage/v1/object/projetos/${it.arquivo}`)).json();
+  p.galeria = { ...(p.galeria || {}), ...it };
+  const faltam = [];
+  for (const m of [...(p.media || []), ...(p.images || [])]) if (!(await dbGet('file:' + m.id))) faltam.push(m);
+  for (const b of p.buffers || []) if (b.fileKey && !(await dbGet(b.fileKey))) faltam.push({ id: b.fileKey.replace(/^file:/, ''), name: b.name });
+  if (faltam.length && !(await pedirArquivos(faltam, it.titulo))) return false;
+  if (galeria) { try { clearTimeout(galT); await galeriaSalvar(); } catch {} }
+  const atual = await dbGet('project');   // projeto aberto que não está na galeria: guarda uma cópia antes de trocar
+  if (atual?.media?.length && !atual.galeria) await dbPut('backup-' + new Date().toISOString().replace(/[:.]/g, '-'), atual);
+  await dbPut('project', p);
+  const u = new URL(location.href); u.searchParams.delete('projeto'); history.replaceState(null, '', u);
+  location.reload(); return true;
+}
+async function openGaleria() {
+  openSheet('galeria', 'Projetos', `
+    <button class="btn primary" id="gl-salvar">${inlineIc('plus')} ${galeria ? 'Salvar agora na galeria' : 'Salvar este projeto na galeria'}</button>
+    ${galeria ? `<p class="note">Aberto: <b>${esc(galeria.titulo || 'Sem título')}</b>. As mudanças vão para a galeria sozinhas.${galeria.video ? ` <a href="${esc(galeria.video)}" target="_blank" rel="noopener">Ver vídeo exportado</a>` : ''}</p>` : ''}
+    <div id="gl-lista"><p class="note">Carregando…</p></div>`, async (b) => {
+    $('#gl-salvar', b).onclick = async () => {
+      if (!S.clips.length) return toast('Abra um vídeo primeiro');
+      let titulo = galeria?.titulo; if (!titulo) { titulo = prompt('Nome do projeto:', 'Projeto ' + new Date().toLocaleDateString('pt-BR')); if (!titulo) return; }
+      try { toast('Salvando…', 30000); await galeriaSalvar({ titulo }); toast('Salvo na galeria', 1500); openGaleria(); } catch (e) { toast(e.message, 4000); }
+    };
+    try {
+      const itens = await galeriaListar();
+      $('#gl-lista', b).innerHTML = itens.length ? `<div class="gl-grid">${itens.map((i) => `<button class="gl-card ${galeria?.id === i.id ? 'on' : ''}" data-gl="${esc(i.id)}">${i.thumbUrl ? `<img src="${esc(i.thumbUrl)}" alt="">` : '<div class="gl-sem"></div>'}<b>${esc(i.titulo || 'Sem título')}</b><span>${esc(i.cliente || '')}${i.atualizadoEm ? ' · ' + new Date(i.atualizadoEm).toLocaleDateString('pt-BR') : ''}</span></button>`).join('')}</div>` : '<p class="note">Nenhum projeto na galeria ainda.</p>';
+      b.querySelectorAll('[data-gl]').forEach((el) => el.onclick = async () => {
+        if (el.dataset.gl === galeria?.id) return closeSheet();
+        toast('Abrindo projeto…', 60000);
+        try { await galeriaAbrir(el.dataset.gl); } catch (e) { toast(e.message, 4000); }
+      });
+    } catch (e) { $('#gl-lista', b).innerHTML = `<p class="note">${esc(e.message)}</p>`; }
+  });
+}
+async function abrirDoLink() {
+  const id = new URLSearchParams(location.search).get('projeto'); if (!id || galeria?.id === id) return;
+  toast('Abrindo projeto da galeria…', 60000);
+  try { await galeriaAbrir(id); } catch (e) { toast(e.message, 5000); }
+}
+
 // aplicarEstado: o agente do Marcelo mexe em S direto e chama isto para redesenhar e salvar o projeto.
 const aplicarEstado = () => { S.clips.forEach(normClip); refresh(); saveSoon(); return S.clips.length; };
-window.__corte = { S, aplicarEstado, renderMixdown, openFs, closeFs, importVideos, addAudioFromFile, play, pause, seekTo, transcribeAll, startExport, media, buffers, transSound, sfxBuffer, extractAudio, decodeMp4Aac, decodeAudio };
+window.__corte = { S, aplicarEstado, exportarArquivo, galeriaSalvar, galeriaListar, linkProjeto, galeria: () => galeria, renderMixdown, openFs, closeFs, importVideos, addAudioFromFile, play, pause, seekTo, transcribeAll, startExport, media, buffers, transSound, sfxBuffer, extractAudio, decodeMp4Aac, decodeAudio };
