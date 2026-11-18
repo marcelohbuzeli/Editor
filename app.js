@@ -1,8 +1,8 @@
 // Meu Editor — editor de vídeo simples para iPhone (PWA)
 // Tudo roda no aparelho: nada é enviado para servidores (exceto se usar a transcrição via Groq).
 
-import { TEMPLATES, LAYOUTS, tplById, layoutById, parseMarked, stripMarks, drawCapTpl, drawLayout, drawLayoutFx, countUnits, drawPreview, loadTemplateFonts } from './estilos.js?v=20';
-import { ANIM_GROUPS, presetsOf, presetByName, animLabel, SPLIT_LABEL, layerPhase, hasAnim, splitSlices, sliceState, applyState, makePlan, emphasisTime } from './animacoes.js?v=20';
+import { TEMPLATES, LAYOUTS, tplById, layoutById, parseMarked, stripMarks, drawCapTpl, drawLayout, drawLayoutFx, countUnits, drawPreview, loadTemplateFonts } from './estilos.js?v=21';
+import { ANIM_GROUPS, presetsOf, presetByName, animLabel, SPLIT_LABEL, layerPhase, hasAnim, splitSlices, sliceState, applyState, makePlan, emphasisTime } from './animacoes.js?v=21';
 const seedOf = (id) => { let h = 7; for (const c of String(id)) h = (h * 31 + c.charCodeAt(0)) >>> 0; return h % 100000; };
 
 const $ = (s, el = document) => el.querySelector(s);
@@ -61,6 +61,7 @@ const FONTS = [
   { id: 'Times New Roman', css: "'Times New Roman', Times, serif" },
 ];
 const COLORS = ['#FFFFFF', '#F7E8B0', '#FFD84D', '#000000'];
+const TPL_COLORS = ['#FFFFFF', '#EEF2F8', '#F1D3B0', '#F7E8B0', '#FFD84D', '#D7FF3A', '#FF6A3D', '#9DB4DE', '#2453C6', '#000000'];
 const fontCss = (id) => (FONTS.find((f) => f.id === id) || FONTS[0]).css;
 
 const DEFAULT_CAP = { font: 'Poppins', weight: 700, size: 60, color: '#FFFFFF', shadow: 60, blur: 12, y: 0.75, upper: false };
@@ -487,6 +488,12 @@ function capTimes(cap, n) {
   const span = Math.max(0.2, Math.min(cap.end - cap.start, n * 0.45));
   return Array.from({ length: n }, (_, i) => cap.start + (span * i) / n);
 }
+// Modelo de legenda com as cores escolhidas por cima das do modelo (Cor do texto / Cor do destaque).
+function capTplOf(c) {
+  const t = tplById(c.tpl); if (!t || (!c.tcolor && !c.tacc)) return t;
+  return { ...t, base: { ...t.base, color: c.tcolor || t.base.color, active: c.tacc || t.base.active },
+    paper: c.tcolor || t.paper, accent: c.tacc || t.accent };
+}
 function drawCaption(ctx, W, H, text, cap, s) {
   const c = S.cap, k = Math.min(W, H) / 1080, fs = c.size * k;
   // keyframes do bloco de legenda (posição, escala, rotação, opacidade)
@@ -495,7 +502,7 @@ function drawCaption(ctx, W, H, text, cap, s) {
   const sc = cap ? kfVal(cap, 'scale', s, cap.sc ?? 1) : 1, rot = cap ? kfVal(cap, 'rot', s, cap.rot ?? 0) : 0;
   ctx.save();
   ctx.globalAlpha = op; ctx.translate(px * W, py * H); if (rot) ctx.rotate(rot * Math.PI / 180); if (sc !== 1) ctx.scale(sc, sc);
-  const tpl = tplById(c.tpl);
+  const tpl = capTplOf(c);
   if (tpl) {
     // modelo de legenda: palavra por palavra, com a combinação de fontes nos destaques (*palavra*)
     const toks = parseMarked(text);
@@ -2339,9 +2346,10 @@ function capStyleHTML() {
       <button class="tpl-card ${!tpl ? 'on' : ''}" data-tpl=""><canvas data-prev-plain></canvas><span>Simples</span></button>
       ${TEMPLATES.map((t) => `<button class="tpl-card ${tpl?.id === t.id ? 'on' : ''}" data-tpl="${t.id}"><canvas data-prev-cap="${t.id}"></canvas><span>${t.name}</span></button>`).join('')}
     </div>
+    ${tpl ? capTplColorsHTML(c, tpl) : ''}
     ${tpl ? `<button class="btn" id="cap-anim">${inlineIc('zap')} Entrada das palavras: ${esc(c.anim ? animLabel(c.anim) : 'Padrão do modelo')}</button>` : ''}
     ${tpl ? `<button class="btn primary" id="cap-auto">${inlineIc('zap')} Destacar pontos altos automaticamente</button>
-    <p class="note">${esc(tpl.desc)}. A fala corrida sai palavra por palavra na fonte base; nos pontos altos entra a combinação do modelo. Os destaques ficam entre *asteriscos* no texto (aba Legendas): marque ou desmarque à mão quando quiser.</p>` : ''}
+    <p class="note">${esc(tpl.desc)}. A fala corrida sai palavra por palavra na fonte base; nos pontos altos entra a combinação do modelo. Os destaques ficam entre *asteriscos* no texto (aba Legendas): marque ou desmarque à mão quando quiser.${tpl.combo === 'script' ? ' Para a combinação, use duas partes diferentes: *grande* e _manuscrito_ (ex.: conteúdo é *profissão* _mais vida_).' : ''}</p>` : ''}
     ${tpl ? '' : `<div class="sec">Fonte</div>
     <div class="chips">${FONTS.map((f) => `<button class="chip ${c.font === f.id ? 'on' : ''}" data-font="${f.id}" style="font-family:${f.css}">${f.id}</button>`).join('')}</div>
     <div class="sec">Peso</div>
@@ -2356,6 +2364,11 @@ function capStyleHTML() {
     <div class="row"><label>Maiúsculas</label><span class="spacer"></span><input type="checkbox" class="tg" id="cap-upper" ${c.upper ? 'checked' : ''}></div>
     <p class="note">O estilo fica salvo como padrão para os próximos vídeos.</p>`;
 }
+function capTplColorsHTML(c, tpl) {
+  const row = (key, label, cur, def) => `<div class="sec">${label}</div>
+    <div class="chips"><button class="chip ${!cur ? 'on' : ''}" data-${key}="">Do modelo</button>${TPL_COLORS.map((x) => `<button class="sw ${(cur || '').toUpperCase() === x ? 'on' : ''}" data-${key}="${x}" style="background:${x}" aria-label="${label} ${x}"></button>`).join('')}<input type="color" id="cap-${key}" value="${cur || def}" aria-label="${label}: outra cor"></div>`;
+  return row('tcolor', 'Cor do texto', c.tcolor, tpl.base.color) + row('tacc', 'Cor do destaque', c.tacc, tpl.accent);
+}
 function bindCapStyle(b) {
   const c = S.cap;
   const pick = (attr, fn) => b.querySelectorAll(`[data-${attr}]`).forEach((el) => el.onclick = () => {
@@ -2369,6 +2382,14 @@ function bindCapStyle(b) {
   if (cc) {
     cc.addEventListener('input', (e) => { if (!pend) pend = snap(); c.color = e.target.value.toUpperCase(); b.querySelectorAll('[data-color]').forEach((x) => x.classList.remove('on')); draw(); });
     cc.addEventListener('change', () => { if (pend) pushHist(pend); pend = null; });
+  }
+  for (const key of ['tcolor', 'tacc']) {
+    pick(key, (v) => { c[key] = v || null; const inp = $('#cap-' + key, b); if (inp && v) inp.value = v; savePrefs(); });
+    const inp = $('#cap-' + key, b); let pk = null;
+    if (inp) {
+      inp.addEventListener('input', (e) => { if (!pk) pk = snap(); c[key] = e.target.value.toUpperCase(); b.querySelectorAll(`[data-${key}]`).forEach((x) => x.classList.remove('on')); draw(); });
+      inp.addEventListener('change', () => { if (pk) pushHist(pk); pk = null; savePrefs(); });
+    }
   }
   b.querySelectorAll('[data-tpl]').forEach((el) => el.onclick = () => { commit(); c.tpl = el.dataset.tpl || null; savePrefs(); loadTemplateFonts().then(draw); openCaptions('estilo'); });
   const au = $('#cap-auto', b); if (au) au.onclick = () => autoHighlight(au);

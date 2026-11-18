@@ -4,8 +4,9 @@
 //   1) Modelo de legenda: fala corrida na fonte base; nos pontos altos (*palavra* no texto) entra a combinação.
 //   2) Adicionar texto: layouts de título prontos, desenhados com as fontes e cores do modelo.
 // Marcação: palavras entre asteriscos são destaque. Ex.: "isso muda *tudo*". Quebra de linha = nova linha.
+// Combinação (modelo Elegante): *grande* + _manuscrito_. Ex.: "conteúdo é *profissão* _mais vida_".
 
-import { makePlan, sliceState, applyState } from './animacoes.js?v=20';
+import { makePlan, sliceState, applyState } from './animacoes.js?v=21';
 
 const F = {
   poppins: "'Poppins', sans-serif",
@@ -64,17 +65,21 @@ const up = (s, on) => (on ? s.toLocaleUpperCase('pt-BR') : s);
 const shadowOn = (ctx, px, a = 0.5) => { ctx.shadowColor = `rgba(0,0,0,${a})`; ctx.shadowBlur = px * 0.18; ctx.shadowOffsetX = 0; ctx.shadowOffsetY = px * 0.03; };
 const shadowOff = (ctx) => { ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; ctx.shadowOffsetY = 0; };
 
-export const stripMarks = (s) => String(s || '').replace(/\*/g, '');
+export const stripMarks = (s) => String(s || '').replace(/[*_]/g, '');
 export function parseMarked(text) {
-  const out = []; let on = false;
+  // *palavra* = destaque (grande); _palavra_ = parte em manuscrito da combinação (também conta como destaque)
+  const out = []; let on = false, sc = false;
   for (const raw of String(text || '').split(/\s+/).filter(Boolean)) {
-    let w = raw, hl = on;
+    let w = raw, hl = on, isSc = sc;
     if (w.startsWith('*')) { on = true; hl = true; w = w.slice(1); }
-    const ends = /\*[.,!?…:;"']*$/.test(w);
+    if (w.startsWith('_')) { sc = true; isSc = true; w = w.slice(1); }
+    const ends = /\*[.,!?…:;"']*$/.test(w), endsSc = /_[.,!?…:;"']*$/.test(w);
     if (ends) w = w.replace(/\*([.,!?…:;"']*)$/, '$1');
-    w = w.replace(/\*/g, '');
-    if (w) out.push({ t: w, hl });
+    if (endsSc) w = w.replace(/_([.,!?…:;"']*)$/, '$1');
+    w = w.replace(/[*_]/g, '');
+    if (w) out.push(isSc ? { t: w, hl: true, sc: true } : { t: w, hl });
     if (ends) on = false;
+    if (endsSc) sc = false;
   }
   return out;
 }
@@ -136,10 +141,23 @@ export function drawCapTpl(ctx, W, tpl, toks, times, s, fs, upper, anim) {
   const first = toks.findIndex((t) => t.hl);
   if (first < 0) return drawCapRun(ctx, W, tpl, toks, times, s, fs, upper, anim);
   let last = first; toks.forEach((t, i) => { if (t.hl) last = i; });
-  const pre = toks.slice(0, first), mid = toks.slice(first, last + 1), post = toks.slice(last + 1);
-  const tPre = times.slice(0, first), tMid = times[first], tPost = times.slice(last + 1);
+  const pre = toks.slice(0, first), mid = toks.slice(first, last + 1);
+  let post = toks.slice(last + 1);
+  const tPre = times.slice(0, first);
+  let tPost = times.slice(last + 1);
   const small = fs * 0.62, maxW = W * 0.88;
-  const bigTxt = mid.map((t) => t.t).join(' ');
+  // combinação: *grande* + _manuscrito_ (palavras diferentes). Sem _manuscrito_, o destaque não se repete.
+  const combo = tpl.combo === 'script';
+  const scToks = combo ? mid.filter((t) => t.sc) : [];
+  const bigToks = scToks.length ? mid.filter((t) => t.hl && !t.sc) : mid;
+  if (scToks.length && bigToks.length) {   // palavras sem marcação entre as duas partes vão para a linha pequena de baixo
+    const plain = mid.map((t, i) => [t, times[first + i]]).filter(([t]) => !t.hl);
+    post = [...plain.map((x) => x[0]), ...post]; tPost = [...plain.map((x) => x[1]), ...tPost];
+  }
+  const bigTxt = (bigToks.length ? bigToks : mid).map((t) => t.t).join(' ');
+  const scTxt = bigToks.length ? scToks.map((t) => t.t).join(' ').replace(/[.,;:…]+$/, '') : '';
+  const tMid = times[first + (bigToks.length ? mid.indexOf(bigToks[0]) : 0)];
+  const tSc = scToks.length ? times[first + mid.indexOf(scToks[0])] : tMid;
   // tamanho do destaque: grande, mas cabendo na largura
   const d = tpl.disp; let big = fs * 1.95 * d.scale;
   ctx.font = fnt(d.font, d.weight, big, d.italic);
@@ -154,7 +172,7 @@ export function drawCapTpl(ctx, W, tpl, toks, times, s, fs, upper, anim) {
     const cy = y + r.h / 2;
     if (r.k === 'small') smallRow(ctx, tpl, pre, tPre, s, small, cy, upper, anim);
     else if (r.k === 'small2') smallRow(ctx, tpl, post, tPost, s, small, cy, upper, anim);
-    else bigCombo(ctx, tpl, bigTxt, tMid, s, big, cy);
+    else bigCombo(ctx, tpl, bigTxt, tMid, s, big, cy, scTxt, tSc, maxW);
     y += r.h + gapS;
   }
 }
@@ -173,7 +191,7 @@ function smallRow(ctx, tpl, toks, times, s, px, cy, upper, anim) {
     x += ws[i] + sp;
   });
 }
-function bigCombo(ctx, tpl, txt, t0, s, px, cy) {
+function bigCombo(ctx, tpl, txt, t0, s, px, cy, scTxt = '', tSc = t0, maxW = 1e5) {
   const p = (s - t0) / 0.28; if (p <= 0) return;
   const d = tpl.disp, label = up(txt, d.upper);
   ctx.save(); ctx.translate(0, cy); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
@@ -188,10 +206,12 @@ function bigCombo(ctx, tpl, txt, t0, s, px, cy) {
   } else if (tpl.combo === 'script') {
     const sc = 0.7 + 0.3 * eBack(p);
     ctx.save(); ctx.scale(sc, sc); ctx.globalAlpha *= eOut(p * 1.5); shadowOn(ctx, px, 0.45); ctx.fillStyle = tpl.paper; ctx.fillText(label, 0, -px * 0.12); ctx.restore();
-    // a mesma palavra em script, por cima e inclinada, revelada da esquerda para a direita
-    const q = cl((s - t0 - 0.15) / 0.45);
+    // a outra parte da combinação em script, por cima e inclinada, revelada da esquerda para a direita
+    const q = scTxt ? cl((s - Math.max(t0, tSc) - 0.05) / 0.45) : 0;
     if (q > 0) {
-      const spx = px * 1.05; ctx.font = fnt(tpl.script, 400, spx); const sw = ctx.measureText(txt).width;
+      let spx = px * 1.05; ctx.font = fnt(tpl.script, 400, spx); let sw = ctx.measureText(scTxt).width;
+      if (sw > maxW) { spx *= maxW / sw; ctx.font = fnt(tpl.script, 400, spx); sw = ctx.measureText(scTxt).width; }
+      const txt = scTxt;
       ctx.save(); ctx.translate(px * 0.18, px * 0.38); ctx.rotate(-6 * Math.PI / 180);
       ctx.beginPath(); ctx.rect(-sw / 2 - spx, -spx * 1.5, (sw + spx * 2) * eOut(q), spx * 3); ctx.clip();
       shadowOn(ctx, spx, 0.55); ctx.fillStyle = tpl.accent; ctx.fillText(txt, 0, 0); ctx.restore();
@@ -417,7 +437,7 @@ export function drawPreview(cv, tpl, kind, id) {
   ctx.fillStyle = '#16111f'; ctx.fillRect(0, 0, W, H);
   ctx.save(); ctx.translate(W / 2, H / 2);
   if (kind === 'cap') {
-    const toks = parseMarked(id || 'isso vai *mudar* tudo');
+    const toks = parseMarked(id || 'é *profissão* _e vida_');
     drawCapTpl(ctx, W * 1.05, tpl, toks, toks.map(() => 0), 10, H * 0.17, false);
   } else {
     const L = layoutById(id) || LAYOUTS[0];
