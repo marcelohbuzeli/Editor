@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0c0814">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Meu Editor">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<title>Instalar o Meu Editor</title>
+<style>
+:root { --ink:#fff; --ink-2:rgba(255,255,255,.75); --ink-3:rgba(255,255,255,.5); --line:rgba(255,255,255,.12); --glass:rgba(255,255,255,.06);
+  --accent:#9b5cff; --accent-2:#c9a6ff; --logo:#ff6d29; --bg0:#0c0814; --bg1:#1a1030; --ok:#2bf0b4; }
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg0); color: var(--ink); font-family: "Helvetica Neue", Helvetica, Inter, Arial, sans-serif; }
+body { background: radial-gradient(120% 60% at 50% 0%, var(--bg1), var(--bg0)) fixed; min-height: 100vh; }
+main { max-width: 520px; margin: 0 auto; padding: calc(28px + env(safe-area-inset-top)) 16px calc(96px + env(safe-area-inset-bottom)); }
+.marca { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 18px; margin-bottom: 26px; }
+.marca i { width: 36px; height: 36px; border-radius: 11px; background: var(--logo); display: grid; place-items: center; }
+.marca svg { width: 20px; height: 20px; color: #fff; }
+h1 { font-size: 28px; line-height: 1.15; margin: 0 0 10px; letter-spacing: -.01em; }
+p { color: var(--ink-2); line-height: 1.55; margin: 0 0 14px; font-size: 15.5px; }
+.aviso { padding: 12px 14px; border-radius: 14px; border: 1px solid rgba(255,200,80,.5); background: rgba(255,200,80,.1); font-size: 14px; color: var(--ink); margin: 18px 0; display: none; }
+.aviso.ok { border-color: rgba(43,240,180,.5); background: rgba(43,240,180,.1); }
+ol { list-style: none; padding: 0; margin: 22px 0; counter-reset: p; }
+li { counter-increment: p; display: grid; grid-template-columns: 40px 1fr; gap: 14px; padding: 16px 0; border-top: 1px solid var(--line); }
+li::before { content: counter(p); width: 40px; height: 40px; border-radius: 50%; background: var(--accent); display: grid; place-items: center; font-weight: 700; font-size: 17px; }
+li > div > b { display: block; font-size: 16.5px; margin-bottom: 4px; }
+li span b { color: var(--ink); }
+li span { color: var(--ink-2); font-size: 14.5px; line-height: 1.5; }
+.ic { display: inline-grid; place-items: center; width: 28px; height: 28px; border-radius: 8px; background: var(--glass); border: 1px solid var(--line); vertical-align: middle; margin: 0 2px; }
+.ic svg { width: 17px; height: 17px; color: #0a84ff; }
+.ic.plus svg { color: #fff; }
+.btn { display: flex; align-items: center; justify-content: center; height: 52px; border-radius: 999px; background: var(--accent); color: #fff; text-decoration: none; font-weight: 700; font-size: 16px; margin: 22px 0 10px; }
+.btn.sec { background: var(--glass); border: 1px solid var(--line); }
+h2 { font-size: 19px; margin: 34px 0 10px; }
+.pq { font-size: 14px; color: var(--ink-3); }
+.seta { position: fixed; left: 50%; bottom: calc(10px + env(safe-area-inset-bottom)); transform: translateX(-50%); display: none; flex-direction: column; align-items: center; gap: 2px; padding: 8px 16px 6px; border-radius: 16px; background: rgba(26,16,48,.95); border: 1px solid var(--line); box-shadow: 0 6px 20px rgba(0,0,0,.5); color: var(--accent-2); font-size: 13px; font-weight: 600; animation: pulo 1.4s ease-in-out infinite; pointer-events: none; }
+.seta svg { width: 26px; height: 26px; }
+@keyframes pulo { 50% { transform: translate(-50%, 6px); } }
+</style>
+</head>
+<body>
+<main>
+  <div class="marca"><i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4 8.12 15.88M14.47 14.48 20 20M8.12 8.12 12 12"/></svg></i>Meu Editor</div>
+
+  <h1>Instale o Meu Editor no iPhone</h1>
+  <p>Leva 20 segundos. Ele vira um ícone na Tela de Início e abre em tela cheia, como um app.</p>
+
+  <div class="aviso" id="av-safari">Abra esta página no <b>Safari</b> para instalar. No Chrome ou no Instagram o iPhone não mostra a opção. Toque em ••• e escolha “Abrir no Safari”, ou copie o endereço.</div>
+  <div class="aviso ok" id="av-ok">Você já está no app instalado. Tudo certo!</div>
+  <div class="aviso" id="av-pc">Você está no computador. Abra <b id="end"></b> no Safari do iPhone, ou use o editor direto no navegador.</div>
+
+  <ol>
+    <li><div><b>Abra no Safari</b><span>Este endereço precisa estar aberto no Safari (a bússola azul).</span></div></li>
+    <li><div><b>Toque em Compartilhar</b><span>É o quadrado com a seta para cima <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M8 7l4-4 4 4"/><path d="M5 11v8a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-8"/></svg></span>, na barra de baixo (ou em cima, no iPad).</span></div></li>
+    <li><div><b>Adicionar à Tela de Início</b><span>Role a lista e toque em <span class="ic plus"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="4"/><path d="M12 8v8M8 12h8"/></svg></span> <b>Adicionar à Tela de Início</b>. Se não aparecer, toque em “Editar Ações” no fim da lista.</span></div></li>
+    <li><div><b>Toque em Adicionar</b><span>Pronto: abra o <b>Meu Editor</b> pelo ícone novo e entre com o e-mail e a senha da sua compra.</span></div></li>
+  </ol>
+
+  <a class="btn" href="./">Abrir o Meu Editor</a>
+
+  <h2>Dicas</h2>
+  <p class="pq">• Sempre abra pelo ícone da Tela de Início: é lá que ficam seus projetos neste aparelho.</p>
+  <p class="pq">• No app instalado, entre <b>com senha</b>. O link de acesso do e-mail abre no Safari, fora do app. Primeiro acesso? Toque em “Esqueci a senha / primeiro acesso” para criar sua senha.</p>
+  <p class="pq">• Seus vídeos não saem do aparelho. Só a lista de projetos e o texto da fala (no Editar com IA) vão para a nuvem.</p>
+
+  <h2 id="comprar">Ainda não tem acesso?</h2>
+  <p class="pq">O acesso é liberado automaticamente depois da compra. Você recebe um e-mail para criar sua senha. Use sempre o mesmo e-mail da compra.</p>
+</main>
+<div class="seta" id="seta"><span>Compartilhar fica aqui</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12l7 7 7-7"/></svg></div>
+<script>
+(function () {
+  var ua = navigator.userAgent;
+  var ios = /iPhone|iPad|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  var instalado = navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches;
+  var outroNavegador = /CriOS|FxiOS|EdgiOS|OPiOS|Instagram|FBAN|FBAV|Line\//.test(ua);
+  var mostra = function (id) { document.getElementById(id).style.display = 'block'; };
+  document.getElementById('end').textContent = location.origin + location.pathname.replace(/instalar\.html$/, '');
+  if (instalado) mostra('av-ok');
+  else if (ios && outroNavegador) mostra('av-safari');
+  else if (ios) { if (/iPhone|iPod/.test(ua)) document.getElementById('seta').style.display = 'flex'; }
+  else mostra('av-pc');
+})();
+</script>
+</body>
+</html>

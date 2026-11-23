@@ -1,6 +1,6 @@
 // Cache do app para abrir rápido e funcionar sem internet
-const CACHE = 'corte-v24';
-const ASSETS = ['./', 'index.html', 'styles.css', 'app.js', 'estilos.js', 'animacoes.js', 'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-180.png', 'icons/icon-512.png', 'sfx/filmburn.mp3', 'vendor/mp4box.all.min.js', 'vendor/mp4-muxer.min.js', 'sfx/lib/index.json'];
+const CACHE = 'corte-v25';
+const ASSETS = ['./', 'index.html', 'instalar.html', 'styles.css', 'app.js', 'estilos.js', 'animacoes.js', 'conta.js', 'agente.js', 'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-180.png', 'icons/icon-512.png', 'sfx/filmburn.mp3', 'vendor/mp4box.all.min.js', 'vendor/mp4-muxer.min.js', 'sfx/lib/index.json'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS.map((u) => new Request(u, { cache: 'reload' })))).catch(() => {}));
@@ -15,7 +15,7 @@ self.addEventListener('fetch', (e) => {
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
   const isFont = url.host === 'fonts.googleapis.com' || url.host === 'fonts.gstatic.com';
-  if (url.origin !== location.origin && !isFont) return;
+  if (url.origin !== location.origin && !isFont) return;   // Supabase, Groq etc. sempre direto na rede (nunca em cache)
   // rede primeiro (para receber atualizações), cache se estiver offline
   e.respondWith(
     fetch(url.origin === location.origin ? new Request(req.url, { cache: 'no-cache', credentials: 'same-origin' }) : req).then((r) => {

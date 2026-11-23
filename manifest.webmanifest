@@ -1,14 +1,20 @@
 {
+  "id": "./",
   "name": "Meu Editor",
   "short_name": "Meu Editor",
-  "start_url": "./",
+  "description": "Editor de vídeo vertical para Reels e anúncios, com edição automática por IA.",
+  "lang": "pt-BR",
+  "start_url": "./?origem=app",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#0c0814",
   "theme_color": "#0c0814",
+  "categories": ["photo", "productivity"],
   "icons": [
     { "src": "icons/icon-180.png", "sizes": "180x180", "type": "image/png" },
-    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml" }
   ]
 }

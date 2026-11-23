@@ -1,8 +1,11 @@
 // Meu Editor — editor de vídeo simples para iPhone (PWA)
-// Tudo roda no aparelho: nada é enviado para servidores (exceto se usar a transcrição via Groq).
+// Os vídeos ficam no aparelho. Vão para a nuvem só: a galeria de projetos (dados leves), a transcrição via Groq
+// (se usada) e, no "Editar com IA", a TRANSCRIÇÃO em texto (nunca o vídeo).
 
-import { TEMPLATES, LAYOUTS, tplById, layoutById, parseMarked, stripMarks, drawCapTpl, drawLayout, drawLayoutFx, countUnits, drawPreview, loadTemplateFonts } from './estilos.js?v=24';
-import { ANIM_GROUPS, presetsOf, presetByName, animLabel, SPLIT_LABEL, layerPhase, hasAnim, splitSlices, sliceState, applyState, makePlan, emphasisTime } from './animacoes.js?v=24';
+import { TEMPLATES, LAYOUTS, tplById, layoutById, parseMarked, stripMarks, drawCapTpl, drawLayout, drawLayoutFx, countUnits, drawPreview, loadTemplateFonts } from './estilos.js?v=25';
+import { ANIM_GROUPS, presetsOf, presetByName, animLabel, SPLIT_LABEL, layerPhase, hasAnim, splitSlices, sliceState, applyState, makePlan, emphasisTime } from './animacoes.js?v=25';
+import * as conta from './conta.js?v=25';
+import { criarAgente } from './agente.js?v=25';
 const seedOf = (id) => { let h = 7; for (const c of String(id)) h = (h * 31 + c.charCodeAt(0)) >>> 0; return h % 100000; };
 
 const $ = (s, el = document) => el.querySelector(s);
@@ -51,6 +54,8 @@ const ICONS = {
   keyFill: '<path d="M12 2.5 21.5 12 12 21.5 2.5 12z" fill="currentColor"/>',
   expand: '<path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/>',
   textbox: '<rect x="3" y="4" width="18" height="16" rx="3"/><path d="M8 9h8M12 9v7"/>',
+  sparkle: '<path d="M12 3l1.8 4.9L19 9.7l-5.2 1.8L12 16.4l-1.8-4.9L5 9.7l5.2-1.8z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/>',
+  gear: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
   unlink: '<path d="m18.84 12.25 1.72-1.71a5 5 0 0 0-7.07-7.07l-1.72 1.71M5.17 11.75l-1.71 1.71a5 5 0 0 0 7.07 7.07l1.71-1.71M8 2v3M2 8h3M16 22v-3M22 16h-3"/>',
 };
 const ic = (n) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICONS[n]}</svg>`;
@@ -60,6 +65,8 @@ const FONTS = [
   { id: 'Poppins', css: "'Poppins', sans-serif" },
   { id: 'Montserrat', css: "'Montserrat', sans-serif" },
   { id: 'Times New Roman', css: "'Times New Roman', Times, serif" },
+  { id: 'Inter', css: "'Inter', sans-serif" },
+  { id: 'Anton', css: "'Anton', sans-serif" },
 ];
 const COLORS = ['#FFFFFF', '#F7E8B0', '#FFD84D', '#000000'];
 const TPL_COLORS = ['#FFFFFF', '#EEF2F8', '#F1D3B0', '#F7E8B0', '#FFD84D', '#D7FF3A', '#FF6A3D', '#9DB4DE', '#2453C6', '#000000'];
@@ -3111,7 +3118,7 @@ document.fonts.ready.then(draw);
 ensureFonts().then(draw);
 try { navigator.storage?.persist?.(); } catch {}
 // versão do app: aparece pequena ao lado do nome, para conferir se atualizou
-const APP_VERSION = 24;
+const APP_VERSION = 25;
 loadTemplateFonts().then(() => { try { draw(); } catch {} });
 { const b = document.querySelector('.brand-ver'); if (b) b.textContent = 'v' + APP_VERSION; }
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
@@ -3124,33 +3131,18 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   }).catch(() => {});
 }
 
-updUndo(); refresh(); restoreProject().then(abrirDoLink);
+const contaPronta = conta.iniciar();
+updUndo(); refresh(); restoreProject().then(() => contaPronta).then(abrirDoLink);
 
 // para testes
 
 // ---------- Galeria de projetos ----------
-// Cada projeto fica no Supabase do Dashplasso: a lista em records (coleção editor_projetos, só dados leves) e o
-// projeto inteiro (+ miniatura) no espaço privado "projetos". Os vídeos brutos ficam no Drive e neste navegador;
-// ao abrir num navegador que não tem os vídeos, o Editor pede para escolher os arquivos (pelo nome).
-const SB = { url: 'https://icarqnbtxrntogfsyavv.supabase.co', key: 'sb_publishable_wQqGdpHuTtThE28o73IlNQ_qzV8WkYR' };
-async function sbSessao() {
-  const k = Object.keys(localStorage).find((x) => /^sb-.+-auth-token$/.test(x)); if (!k) return null;
-  let ses; try { ses = JSON.parse(localStorage.getItem(k)); } catch { return null; }
-  if (!ses?.access_token) return null;
-  if ((ses.expires_at || 0) * 1000 < Date.now() + 60000 && ses.refresh_token) {   // login vencido: renova (mesmo login do Dashplasso)
-    const r = await fetch(SB.url + '/auth/v1/token?grant_type=refresh_token', { method: 'POST', headers: { apikey: SB.key, 'Content-Type': 'application/json' }, body: JSON.stringify({ refresh_token: ses.refresh_token }) });
-    if (!r.ok) return null;
-    ses = await r.json(); ses.expires_at ??= Math.floor(Date.now() / 1000) + (ses.expires_in || 3600);
-    try { localStorage.setItem(k, JSON.stringify(ses)); } catch {}
-  }
-  return ses;
-}
-async function sbReq(path, opt = {}) {
-  const ses = await sbSessao(); if (!ses) throw new Error('Entre no Dashplasso neste navegador para usar a galeria.');
-  const r = await fetch(SB.url + path, { ...opt, headers: { apikey: SB.key, Authorization: 'Bearer ' + ses.access_token, ...(opt.headers || {}) } });
-  if (!r.ok) throw new Error('Galeria: ' + r.status + ' ' + (await r.text()).slice(0, 160));
-  return r;
-}
+// Cada comprador tem a própria galeria no Supabase do Editor (conta.js): a lista na tabela "projetos" (só dados leves)
+// e o projeto inteiro (+ miniatura) na pasta dele no espaço privado "projetos". Os vídeos brutos ficam no aparelho;
+// ao abrir num aparelho que não tem os vídeos, o Editor pede para escolher os arquivos (pelo nome).
+const SB = conta.SB;
+const sbSessao = conta.sessao;
+const sbReq = conta.sbReq;
 const linkProjeto = (id) => location.origin + location.pathname.replace(/index\.html$/, '') + '?projeto=' + encodeURIComponent(id);
 function miniatura() {
   if (!S.clips.length) return Promise.resolve(null);
@@ -3159,7 +3151,7 @@ function miniatura() {
   return new Promise((res) => c.toBlob(res, 'image/jpeg', 0.75));
 }
 async function galeriaSalvar(meta = {}) {
-  const ses = await sbSessao(); if (!ses) throw new Error('Entre no Dashplasso neste navegador para usar a galeria.');
+  const ses = await sbSessao(); if (!ses) { conta.mostrarLogin(); throw new Error('Entre na sua conta para usar a galeria.'); }
   if (!S.clips.length) throw new Error('projeto sem vídeo');
   const id = galeria?.id || meta.id || ('p' + Date.now().toString(36) + uid().slice(0, 4));
   const agora = new Date().toISOString();
@@ -3170,14 +3162,14 @@ async function galeriaSalvar(meta = {}) {
   try { const th = await miniatura(); if (th) { await sbReq(`/storage/v1/object/projetos/${base}.jpg`, { method: 'POST', headers: { 'Content-Type': 'image/jpeg', 'x-upsert': 'true' }, body: th }); galeria.thumb = base + '.jpg'; } } catch (e) { console.warn('miniatura', e); }
   const obj = projetoObj();
   await sbReq(`/storage/v1/object/projetos/${base}.json`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-upsert': 'true' }, body: JSON.stringify(obj) });
-  await sbReq('/rest/v1/records?on_conflict=owner,collection,id', { method: 'POST', headers: { 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify({ collection: 'editor_projetos', id, data: galeria }) });
+  await sbReq('/rest/v1/projetos?on_conflict=owner,id', { method: 'POST', headers: { 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify({ id, data: galeria }) });
   dbPut('project', obj);
   return { id, link: linkProjeto(id) };
 }
 let galT = 0;
 function galeriaSalvarSoon() { clearTimeout(galT); galT = setTimeout(() => galeriaSalvar().catch((e) => console.warn('galeria', e.message)), 5000); }
 async function galeriaListar() {
-  const itens = (await (await sbReq('/rest/v1/records?collection=eq.editor_projetos&select=data&order=updated_at.desc')).json()).map((x) => x.data).filter(Boolean);
+  const itens = (await (await sbReq('/rest/v1/projetos?select=data&order=atualizado_em.desc')).json()).map((x) => x.data).filter(Boolean);
   const th = itens.filter((i) => i.thumb).map((i) => i.thumb);
   if (th.length) {
     try {
@@ -3209,7 +3201,7 @@ function pedirArquivos(faltam, titulo) {
   });
 }
 async function galeriaAbrir(id) {
-  const it = (await (await sbReq(`/rest/v1/records?collection=eq.editor_projetos&id=eq.${encodeURIComponent(id)}&select=data`)).json())[0]?.data;
+  const it = (await (await sbReq(`/rest/v1/projetos?id=eq.${encodeURIComponent(id)}&select=data`)).json())[0]?.data;
   if (!it) throw new Error('Projeto não encontrado na galeria.');
   const p = await (await sbReq(`/storage/v1/object/projetos/${it.arquivo}`)).json();
   p.galeria = { ...(p.galeria || {}), ...it };
@@ -3251,6 +3243,262 @@ async function abrirDoLink() {
   try { await galeriaAbrir(id); } catch (e) { toast(e.message, 5000); }
 }
 
+// ---------- Configurações: conta e kit da marca ----------
+const KIT_PADRAO = { nome: '', logo: '', cores: { primaria: '#FFFFFF', secundaria: '#000000', destaque: '#FFD84D' }, fontes: { titulo: 'Poppins', texto: 'Poppins' }, briefing: '', referencias: [] };
+const kitDe = (p) => { const k = p?.kit || {}; return { ...KIT_PADRAO, ...k, cores: { ...KIT_PADRAO.cores, ...(k.cores || {}) }, fontes: { ...KIT_PADRAO.fontes, ...(k.fontes || {}) }, referencias: Array.isArray(k.referencias) ? k.referencias : [] }; };
+async function urlAssinada(path) {
+  if (!path) return null;
+  try { const j = await (await sbReq('/storage/v1/object/sign/projetos/' + path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ expiresIn: 3600 }) })).json(); return j.signedURL ? SB.url + '/storage/v1' + j.signedURL : null; } catch { return null; }
+}
+async function openConfig() {
+  let p = null; try { p = await conta.perfil(true); } catch (e) { return toast(e.message, 3000); }
+  if (!p) return conta.mostrarLogin();
+  const kit = kitDe(p);
+  const fontOpts = (sel) => FONTS.map((f) => `<option value="${esc(f.id)}" ${sel === f.id ? 'selected' : ''}>${esc(f.id)}</option>`).join('');
+  const refRow = (r = {}, i) => `<div class="kit-ref" data-ref="${i}"><input class="tx-in kit-in" data-k="link" placeholder="Link do vídeo (Instagram, YouTube, Drive…)" value="${esc(r.link || '')}"><input class="tx-in kit-in" data-k="nota" placeholder="O que você gosta nele (ritmo, legenda, cortes…)" value="${esc(r.nota || '')}"><button class="mini" data-rm="${i}" aria-label="Remover">${ic('x')}</button></div>`;
+  openSheet('config', 'Configurações', `
+    <div class="sec">Sua conta</div>
+    <p class="note"><b>${esc(p.email || '')}</b><br>Plano: ${esc(p.plano || '—')} · Créditos de IA: <b>${p.creditos ?? 0}</b></p>
+    <div class="chips"><button class="chip" id="cf-senha">Trocar senha</button><a class="chip" href="instalar.html">${inlineIc('expand', 12)} Instalar no iPhone</a><button class="chip" id="cf-sair">Sair</button></div>
+    <div class="sec">Kit da marca</div>
+    <p class="note">A IA usa este kit para editar no seu estilo. Fica salvo na sua conta.</p>
+    <div class="kit-logo"><div id="kit-logo-img" class="kit-logo-img">${kit.logo ? '' : 'Logo'}</div><div><button class="btn" id="kit-logo-btn" style="margin:0">${kit.logo ? 'Trocar logo' : 'Enviar logo'}</button><input type="file" id="kit-logo-f" accept="image/png,image/jpeg,image/svg+xml,image/webp" hidden></div></div>
+    <label class="kit-lb">Nome da marca</label><input class="tx-in kit-in" id="kit-nome" value="${esc(kit.nome)}" placeholder="Ex.: Clínica Bella">
+    <label class="kit-lb">Cores</label>
+    <div class="kit-cores">${[['primaria', 'Principal'], ['secundaria', 'Secundária'], ['destaque', 'Destaque']].map(([k, l]) => `<label class="kit-cor"><input type="color" data-cor="${k}" value="${esc(kit.cores[k])}"><span>${l}</span></label>`).join('')}</div>
+    <label class="kit-lb">Fontes</label>
+    <div class="kit-cores"><label class="kit-cor"><select class="tx-in kit-in" id="kit-ft">${fontOpts(kit.fontes.titulo)}</select><span>Títulos</span></label><label class="kit-cor"><select class="tx-in kit-in" id="kit-fx">${fontOpts(kit.fontes.texto)}</select><span>Legenda</span></label></div>
+    <label class="kit-lb">Mini briefing</label><textarea class="tx-in" id="kit-brief" rows="4" placeholder="Quem é a marca, o público, o tom de voz, palavras que usa e que evita.">${esc(kit.briefing)}</textarea>
+    <label class="kit-lb">Vídeos de referência de estilo</label>
+    <p class="note">Cole links de vídeos que mostram o estilo que você quer. O vídeo não é enviado: a IA lê o link e a sua nota.</p>
+    <div id="kit-refs">${kit.referencias.map(refRow).join('')}</div>
+    <button class="btn" id="kit-ref-add">${inlineIc('plus')} Adicionar referência</button>
+    <button class="btn primary" id="kit-salvar">Salvar kit da marca</button>`, async (b) => {
+    $('#cf-sair', b).onclick = () => conta.sair();
+    $('#cf-senha', b).onclick = async () => {
+      const n = prompt('Senha nova (mínimo 8 caracteres):'); if (!n) return;
+      if (n.length < 8) return toast('Use pelo menos 8 caracteres', 2500);
+      try { await conta.trocarSenha(n); toast('Senha trocada', 2000); } catch (e) { toast(e.message, 3500); }
+    };
+    const logoBox = $('#kit-logo-img', b);
+    if (kit.logo) urlAssinada(kit.logo).then((u) => { if (u && logoBox.isConnected) logoBox.innerHTML = `<img src="${esc(u)}" alt="Logo">`; });
+    $('#kit-logo-btn', b).onclick = () => $('#kit-logo-f', b).click();
+    $('#kit-logo-f', b).onchange = async (e) => {
+      const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+      if (f.size > 3 * 1048576) return toast('Logo grande demais (máx. 3 MB)', 3000);
+      try {
+        toast('Enviando logo…', 20000);
+        const ext = (f.name.match(/\.(png|jpe?g|svg|webp)$/i)?.[1] || 'png').toLowerCase();
+        const path = `${(await sbSessao()).user.id}/kit/logo.${ext}`;
+        await sbReq('/storage/v1/object/projetos/' + path, { method: 'POST', headers: { 'Content-Type': f.type || 'image/png', 'x-upsert': 'true' }, body: f });
+        kit.logo = path; logoBox.innerHTML = `<img src="${URL.createObjectURL(f)}" alt="Logo">`; toast('Logo enviada. Toque em Salvar.', 2200);
+      } catch (er) { toast(er.message, 3500); }
+    };
+    const refs = $('#kit-refs', b);
+    const lerRefs = () => [...refs.querySelectorAll('.kit-ref')].map((el) => ({ link: el.querySelector('[data-k="link"]').value.trim(), nota: el.querySelector('[data-k="nota"]').value.trim() })).filter((r) => r.link || r.nota);
+    const ligarRm = () => refs.querySelectorAll('[data-rm]').forEach((x) => x.onclick = () => x.closest('.kit-ref').remove());
+    ligarRm();
+    $('#kit-ref-add', b).onclick = () => { if (refs.children.length >= 6) return toast('Até 6 referências'); refs.insertAdjacentHTML('beforeend', refRow({}, refs.children.length)); ligarRm(); };
+    $('#kit-salvar', b).onclick = async (e) => {
+      const novo = { ...kit, nome: $('#kit-nome', b).value.trim().slice(0, 80), briefing: $('#kit-brief', b).value.trim().slice(0, 2000),
+        cores: Object.fromEntries([...b.querySelectorAll('[data-cor]')].map((x) => [x.dataset.cor, x.value.toUpperCase()])),
+        fontes: { titulo: $('#kit-ft', b).value, texto: $('#kit-fx', b).value }, referencias: lerRefs().slice(0, 6) };
+      e.currentTarget.disabled = true;
+      try { await conta.salvarKit(novo); toast('Kit da marca salvo', 1800); closeSheet(); } catch (er) { toast(er.message, 3500); e.currentTarget.disabled = false; }
+    };
+  });
+}
+
+// ---------- Editar com IA ----------
+// Fluxo barato: o vídeo nunca sai do aparelho. Vai só a transcrição (texto) + formulário + kit da marca.
+// A função editar-ia (Claude) devolve uma receita; o app aplica com as funções do agente (window.__agente).
+const IA_OBJ = { reels: [['venda', 'Venda'], ['crescimento', 'Crescimento'], ['seguidores', 'Seguidores'], ['autoridade', 'Autoridade']],
+  anuncio: [['venda', 'Venda'], ['alcance', 'Alcance'], ['leads', 'Leads'], ['trafego', 'Tráfego']] };
+const IA_DUR = [15, 30, 45, 60, 90, 0];
+let iaRef = null;   // { nome, b64 } referência visual (só um JPEG pequeno sai do aparelho)
+function iaForm() { const f = prefs.iaForm || {}; return { formato: f.formato || 'reels', objetivo: f.objetivo || 'venda', ideia: f.ideia || '', roteiro: f.roteiro || '', motion: f.motion ?? true, duracao: f.duracao ?? 30 }; }
+function jpegPequeno(src, w0, h0) {
+  const k = Math.min(1, 768 / Math.max(w0, h0)); const c = document.createElement('canvas'); c.width = Math.round(w0 * k); c.height = Math.round(h0 * k);
+  c.getContext('2d').drawImage(src, 0, 0, c.width, c.height); return c.toDataURL('image/jpeg', 0.75).split(',')[1];
+}
+async function lerReferencia(f) {
+  const url = URL.createObjectURL(f);
+  try {
+    if (f.type.startsWith('image/')) { const img = new Image(); img.src = url; await img.decode(); return jpegPequeno(img, img.naturalWidth, img.naturalHeight); }
+    const v = document.createElement('video'); v.muted = true; v.playsInline = true; v.preload = 'auto'; v.src = url;
+    await new Promise((res, rej) => { v.onloadeddata = res; v.onerror = () => rej(new Error('não consegui ler este vídeo')); });
+    v.currentTime = Math.min(1.5, (v.duration || 2) / 3); await new Promise((res) => { v.onseeked = res; setTimeout(res, 3000); });
+    return jpegPequeno(v, v.videoWidth, v.videoHeight);
+  } finally { URL.revokeObjectURL(url); }
+}
+const semTranscricao = () => [...new Set(S.clips.map((c) => c.mediaId))].filter((m) => !(S.words[m] || []).length);
+async function openIA() {
+  if (!S.clips.length) return toast('Adicione um vídeo primeiro', 2500);
+  const F = iaForm();
+  const objChips = () => IA_OBJ[F.formato].map(([k, l]) => `<button class="chip ${F.objetivo === k ? 'on' : ''}" data-obj="${k}">${l}</button>`).join('');
+  const falta = semTranscricao();
+  openSheet('ia', 'Editar com IA', `
+    <div id="ia-estado" class="ia-estado">Verificando a IA…</div>
+    ${falta.length ? `<p class="note">Antes, gere a legenda: a IA edita a partir da transcrição da fala.</p><button class="btn" id="ia-leg">${inlineIc('type')} Gerar legenda primeiro</button>` : ''}
+    <div class="sec">Formato</div>
+    <div class="chips"><button class="chip ${F.formato === 'reels' ? 'on' : ''}" data-fmt="reels">Reels</button><button class="chip ${F.formato === 'anuncio' ? 'on' : ''}" data-fmt="anuncio">Anúncio</button></div>
+    <div class="sec">Objetivo</div><div class="chips" id="ia-obj">${objChips()}</div>
+    <div class="sec">Ideia do vídeo</div><textarea class="tx-in" id="ia-ideia" rows="2" placeholder="Ex.: mostrar 3 erros de quem começa a treinar">${esc(F.ideia)}</textarea>
+    <div class="sec">Roteiro (opcional)</div><textarea class="tx-in" id="ia-rot" rows="3" placeholder="Cole o roteiro para a IA seguir a ordem e cortar o que estiver fora">${esc(F.roteiro)}</textarea>
+    <div class="sec">Referência (opcional)</div>
+    <div class="chips"><button class="chip" id="ia-ref-b">${inlineIc('plus', 12)} Imagem ou vídeo</button><span class="note" id="ia-ref-n">${iaRef ? esc(iaRef.nome) : 'Só um quadro pequeno é enviado.'}</span>${iaRef ? '<button class="chip" id="ia-ref-x">Tirar</button>' : ''}</div>
+    <input type="file" id="ia-ref-f" accept="image/*,video/*" hidden>
+    <div class="row"><label>Motion (textos animados)</label><span class="spacer"></span><input type="checkbox" class="tg" id="ia-motion" ${F.motion ? 'checked' : ''}></div>
+    <div class="sec">Duração alvo</div>
+    <div class="chips">${IA_DUR.map((d) => `<button class="chip ${F.duracao === d ? 'on' : ''}" data-dur="${d}">${d ? d + ' s' : 'Livre'}</button>`).join('')}</div>
+    <button class="btn primary" id="ia-ir" disabled>Editar com IA</button>
+    <p class="note">O vídeo não sai do seu aparelho: vai só o texto da fala. O crédito só é descontado quando a edição chega. Dá para desfazer.</p>`, async (b) => {
+    const salvarF = () => { prefs.iaForm = { ...F }; savePrefs(); };
+    b.querySelectorAll('[data-fmt]').forEach((el) => el.onclick = () => {
+      F.formato = el.dataset.fmt; if (!IA_OBJ[F.formato].some(([k]) => k === F.objetivo)) F.objetivo = 'venda';
+      b.querySelectorAll('[data-fmt]').forEach((x) => x.classList.toggle('on', x === el)); $('#ia-obj', b).innerHTML = objChips(); ligarObj(); salvarF();
+    });
+    const ligarObj = () => b.querySelectorAll('[data-obj]').forEach((el) => el.onclick = () => { F.objetivo = el.dataset.obj; b.querySelectorAll('[data-obj]').forEach((x) => x.classList.toggle('on', x === el)); salvarF(); });
+    ligarObj();
+    b.querySelectorAll('[data-dur]').forEach((el) => el.onclick = () => { F.duracao = +el.dataset.dur; b.querySelectorAll('[data-dur]').forEach((x) => x.classList.toggle('on', x === el)); salvarF(); });
+    $('#ia-motion', b).onchange = (e) => { F.motion = e.target.checked; salvarF(); };
+    $('#ia-ideia', b).oninput = (e) => { F.ideia = e.target.value; salvarF(); };
+    $('#ia-rot', b).oninput = (e) => { F.roteiro = e.target.value; salvarF(); };
+    const leg = $('#ia-leg', b); if (leg) leg.onclick = () => openCaptions('gerar');
+    $('#ia-ref-b', b).onclick = () => $('#ia-ref-f', b).click();
+    const rx = $('#ia-ref-x', b); if (rx) rx.onclick = () => { iaRef = null; openIA(); };
+    $('#ia-ref-f', b).onchange = async (e) => {
+      const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+      try { iaRef = { nome: f.name, b64: await lerReferencia(f) }; openIA(); } catch (er) { toast(er.message, 3000); }
+    };
+    // estado da IA (sem chave = "IA em configuração") e créditos
+    const est = $('#ia-estado', b), btn = $('#ia-ir', b);
+    let info = null;
+    try { info = await (await sbReq('/functions/v1/editar-ia')).json(); }
+    catch (e) { est.className = 'ia-estado erro'; est.textContent = e.codigo === 'bloqueado' ? 'Seu acesso está bloqueado.' : 'Não consegui falar com a IA: ' + e.message; return; }
+    if (!est.isConnected) return;
+    if (!info.ativa) { est.className = 'ia-estado config'; est.innerHTML = `<b>IA em configuração.</b> O botão será liberado em breve. Seus créditos: ${info.creditos}.`; btn.textContent = 'IA em configuração'; return; }
+    if (info.creditos < info.custo) { est.className = 'ia-estado erro'; est.textContent = `Sem créditos de IA (você tem ${info.creditos}, precisa de ${info.custo}).`; btn.textContent = 'Sem créditos'; return; }
+    est.className = 'ia-estado ok'; est.textContent = `IA pronta · você tem ${info.creditos} crédito(s) · cada edição usa ${info.custo}.`;
+    btn.textContent = `Editar com IA (${info.custo} crédito${info.custo > 1 ? 's' : ''})`; btn.disabled = !!falta.length;
+    btn.onclick = async () => {
+      if (semTranscricao().length) return toast('Gere a legenda primeiro', 2500);
+      btn.disabled = true; btn.textContent = 'A IA está editando… (até 1 min)';
+      try {
+        const r = await pedirReceita(F);
+        const resumo = await aplicarReceita(r.receita, F);
+        conta.perfil(true).catch(() => {});
+        closeSheet(); toast(`Pronto! ${resumo} · ${r.creditos} crédito(s) restante(s)`, 5000);
+      } catch (e) {
+        btn.disabled = false; btn.textContent = 'Tentar de novo';
+        est.className = 'ia-estado ' + (e.codigo === 'ia_em_configuracao' ? 'config' : 'erro'); est.textContent = e.message;
+      }
+    };
+  });
+}
+async function pedirReceita(F) {
+  const A = window.__agente, P = A.palavras();
+  const nome = (m) => media.get(m)?.name || m;
+  const transcricao = P.map((w) => `${w.i}|${w.t}|${w.s}|${nome(w.m)}`).join('\n');
+  await loadSfxIndex();
+  const kit = kitDe(await conta.perfil().catch(() => null)); delete kit.logo;
+  const corpo = {
+    formulario: { formato: F.formato, objetivo: F.objetivo, ideia: F.ideia, roteiro: F.roteiro, motion: F.motion, duracao_alvo_s: F.duracao || null },
+    kit, transcricao, duracao_bruta: +[...new Set(S.clips.map((c) => c.mediaId))].reduce((t, m) => t + (media.get(m)?.duration || 0), 0).toFixed(1),
+    opcoes: {
+      modelos_legenda: ['impacto', 'elegante', 'editorial', 'simples'], fontes: FONTS.map((f) => f.id),
+      sons: (sfxIndex || []).map((x) => x.name),
+      animacoes_entrada: presetsOf('enter').slice(0, 16).map((p) => p.n), animacoes_saida: presetsOf('exit').slice(0, 10).map((p) => p.n),
+    },
+    referencia_imagem: iaRef?.b64 || null,
+  };
+  return (await sbReq('/functions/v1/editar-ia', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo) })).json();
+}
+async function addSfxEm(nomeSom, t) {
+  const s = (sfxIndex || []).find((x) => x.name.toLowerCase() === String(nomeSom).toLowerCase()); if (!s) return false;
+  const blob = await (await fetch('sfx/lib/' + encodeURIComponent(s.file))).blob();
+  const f = new File([blob], s.file, { type: 'audio/mpeg' });
+  const buf = await extractAudio(f), [a, z] = sfxTrim(s.file, buf.duration), bid = uid();
+  buffers.set(bid, { buffer: buf, peaks: computePeaks(buf), name: f.name, fileKey: 'file:' + bid }); dbPut('file:' + bid, f);
+  S.audios.push({ id: uid(), bufferId: bid, name: s.name, start: Math.max(0, t - 0.05), in: a, out: z, volume: 0.8, fadeIn: 0, fadeOut: 0 });
+  return true;
+}
+// Aplica a receita da IA com as funções do agente. Tudo num passo só de desfazer.
+async function aplicarReceita(r, F = {}) {
+  const A = window.__agente; if (!A) throw new Error('agente indisponível');
+  const P = A.palavras(), n = P.length; if (!n) throw new Error('sem transcrição');
+  const ok = (i) => Number.isInteger(i) && i >= 0 && i < n;
+  const trechos = (r.trechos || []).map((t) => [Math.max(0, t.de | 0), Math.min(n - 1, t.ate | 0)]).filter(([a, b]) => b >= a);
+  if (!trechos.length) throw new Error('A IA não devolveu trechos para manter.');
+  commit();
+  // tem transcrição mas ainda não tem legenda: monta os blocos (até 4 palavras, quebra em pausa ou fim de frase)
+  for (const mid of [...new Set(S.clips.map((c) => c.mediaId))]) {
+    if (S.captions.some((c) => c.mediaId === mid) || !(S.words[mid] || []).length) continue;
+    const blocos = []; let cur = [];
+    for (const w of S.words[mid]) { const p = cur[cur.length - 1]; if (p && (cur.length >= 4 || w.start - p.end > 0.7 || /[.!?…]$/.test(p.text))) { blocos.push(cur); cur = []; } cur.push(w); }
+    if (cur.length) blocos.push(cur);
+    blocos.forEach((bw, i) => { const nx = blocos[i + 1]; let fim = bw[bw.length - 1].end + 0.3; if (nx) fim = Math.min(fim, nx[0].start);
+      S.captions.push({ id: uid(), mediaId: mid, start: bw[0].start, end: Math.max(fim, bw[0].start + 0.2), text: bw.map((w) => w.text).join(' ') }); });
+  }
+  A.montar(trechos, { pausa: clamp(+r.pausa_max || 0.35, 0.2, 0.6) });
+  // legenda
+  const L = r.legenda || {}, kitP = (await conta.perfil().catch(() => null))?.kit || {}, cores = kitP.cores || {};
+  const fonteTit = FONTS.some((f) => f.id === kitP.fontes?.titulo) ? kitP.fontes.titulo : null;
+  const hex = (c, d) => (/^#[0-9a-f]{6}$/i.test(c || '') ? c.toUpperCase() : d);
+  const tpl = L.modelo && L.modelo !== 'simples' && tplById(L.modelo) ? L.modelo : null;
+  Object.assign(S.cap, { tpl, upper: !!L.maiusculas, y: { alto: 0.25, meio: 0.5, baixo: 0.75 }[L.posicao] ?? S.cap.y });
+  if (FONTS.some((f) => f.id === L.fonte)) S.cap.font = L.fonte;
+  if (tpl) { S.cap.tcolor = hex(L.cor, null); S.cap.tacc = hex(L.cor_destaque, hex(cores.destaque, null)); } else S.cap.color = hex(L.cor, S.cap.color);
+  let comb = 0, ruins = 0;
+  if (tpl && (r.destaques || []).length) A.destacar(r.destaques.slice(0, 30));
+  if (r.zoom_nos_cortes) A.zooms(); else S.zooms = [];
+  if (tpl === 'elegante') for (const c of (r.combinacoes || []).slice(0, 4)) { try { A.combinar(c.grande, c.manuscrito); comb++; } catch { ruins++; } }
+  const tl = (i) => (ok(i) ? A.tempoNaTimeline(P[i].m, P[i].s) : null);
+  for (const z of (r.zooms_pontos || []).slice(0, 6)) { const t = tl(z.palavra); if (t != null) { try { A.zoomNaFrase(t, { forca: clamp(+z.forca || 1.2, 1.05, 1.35) }); } catch { ruins++; } } }
+  // transições
+  const tp = ['none', 'flash', 'burn'].includes(r.transicao_padrao) ? r.transicao_padrao : 'none';
+  S.clips.forEach((c, i) => (c.transition = i ? tp : 'none'));
+  for (const x of r.transicoes || []) {
+    const t = tl(x.palavra); if (t == null || !['none', 'flash', 'burn'].includes(x.tipo)) continue;
+    let acc = 0; for (let i = 0; i < S.clips.length; i++) { const len = S.clips[i].out - S.clips[i].in; if (t < acc + len) { if (i) S.clips[i].transition = x.tipo; break; } acc += len; }
+  }
+  // efeitos sonoros
+  await loadSfxIndex(); let sons = 0;
+  for (const x of (r.sons || []).slice(0, 20)) { const t = tl(x.palavra); if (t != null) { try { if (await addSfxEm(x.som, t)) sons++; } catch {} } }
+  // textos / motion
+  let textos = 0;
+  if (F.motion !== false) for (const x of (r.textos || []).slice(0, 12)) {
+    const t = tl(x.palavra); if (t == null || !String(x.texto || '').trim()) continue;
+    A.titulo(String(x.texto).slice(0, 60), +t.toFixed(2), clamp(+x.duracao || 2.2, 0.8, 5), { layout: LAYOUTS.some((l) => l.id === x.layout) ? x.layout : 'mix', tcolor: S.cap.tcolor || null, tacc: S.cap.tacc || null, font: fonteTit || S.cap.font });
+    const Ly = S.layers[S.layers.length - 1];
+    const an = { in: presetByName(x.animacao_entrada) ? x.animacao_entrada : null, out: presetByName(x.animacao_saida) ? x.animacao_saida : null };
+    if (an.in || an.out) Ly.anim = an;
+    textos++;
+  }
+  A.aplicar(); savePrefs();
+  const dur = S.clips.reduce((t, c) => t + c.out - c.in, 0);
+  return `${S.clips.length} cortes, ${dur.toFixed(0)} s` + (comb ? `, ${comb} frase(s) de efeito` : '') + (sons ? `, ${sons} som(ns)` : '') + (textos ? `, ${textos} texto(s)` : '') + (r.resumo ? ` — ${r.resumo}` : '');
+}
+
+// ---------- Aviso no iPhone: abrir pelo app instalado ----------
+function avisoInstalar() {
+  const ios = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const instalado = navigator.standalone === true || matchMedia('(display-mode: standalone)').matches;
+  if (!ios || instalado) return;
+  try { if (Date.now() - (+localStorage.getItem('aviso-instalar') || 0) < 3 * 86400000) return; } catch {}
+  const d = document.createElement('div'); d.id = 'aviso-instalar';
+  d.innerHTML = `<span>Instale o Meu Editor na Tela de Início para usar como app.</span><a href="instalar.html">Como instalar</a><button aria-label="Fechar">${ic('x')}</button>`;
+  d.querySelector('button').onclick = () => { d.remove(); try { localStorage.setItem('aviso-instalar', String(Date.now())); } catch {} };
+  document.body.appendChild(d);
+}
+contaPronta.then(avisoInstalar);
+
+$('#btn-ia').innerHTML = ic('sparkle') + '<span>IA</span>';
+$('#btn-ia').onclick = openIA;
+$('#btn-config').innerHTML = ic('gear');
+$('#btn-config').onclick = openConfig;
+
 // aplicarEstado: o agente do Marcelo mexe em S direto e chama isto para redesenhar e salvar o projeto.
 const aplicarEstado = () => { S.clips.forEach(normClip); refresh(); saveSoon(); return S.clips.length; };
-window.__corte = { S, aplicarEstado, exportarArquivo, galeriaSalvar, galeriaListar, linkProjeto, galeria: () => galeria, renderMixdown, openFs, closeFs, importVideos, addAudioFromFile, play, pause, seekTo, transcribeAll, startExport, media, buffers, transSound, sfxBuffer, extractAudio, decodeMp4Aac, decodeAudio };
+window.__corte = { S, aplicarEstado, aplicarReceita, avisoInstalar, conta, exportarArquivo, galeriaSalvar, galeriaListar, linkProjeto, galeria: () => galeria, renderMixdown, openFs, closeFs, importVideos, addAudioFromFile, play, pause, seekTo, transcribeAll, startExport, media, buffers, transSound, sfxBuffer, extractAudio, decodeMp4Aac, decodeAudio };
+window.__agente = criarAgente(window.__corte);
