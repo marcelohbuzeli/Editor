@@ -79,7 +79,7 @@ export async function sair() {
   try { if (ses?.access_token) await fetch(SB.url + '/auth/v1/logout', { method: 'POST', headers: { apikey: SB.key, Authorization: 'Bearer ' + ses.access_token } }); } catch {}
   gravar(null); perfilCache = null; location.reload();
 }
-export async function trocarSenha(senha) { const ses = await sessao(); await auth('/user', { password: senha }, ses.access_token); }
+export async function trocarSenha(senha) { const ses = await sessao(); await auth('/user', { password: senha }, ses.access_token); try { localStorage.removeItem('editor-nova-senha'); } catch {} }
 
 // ---------- Tela de login ----------
 let host = null, resolver = null, etapa = 'senha', emailAtual = '';
@@ -176,7 +176,7 @@ function telaLogin() {
       h.querySelector('#volta').onclick = () => { etapa = 'senha'; telaLogin(); };
     });
   } else if (etapa === 'nova-senha') {
-    tela(`<h2>Sua senha nova</h2><p class="sub">Escolha uma senha com pelo menos 8 caracteres.</p>
+    tela(`<h2>Crie sua senha</h2><p class="sub">Escolha uma senha com pelo menos 8 caracteres. Você vai usar este e-mail e esta senha para entrar, inclusive no iPhone.</p>
       <form id="f"><label>Senha nova</label><input type="password" id="p1" autocomplete="new-password" minlength="8" required>
       <label>Repita a senha</label><input type="password" id="p2" autocomplete="new-password" minlength="8" required>
       <button class="b" id="ok">Salvar e entrar</button></form>`, (h) => {
@@ -223,8 +223,11 @@ export function iniciar() {
   return new Promise(async (res) => {
     resolver = res;
     let ret = null; try { ret = await lerRetornoDoEmail(); } catch (e) { ret = { erro: e.message }; }
-    if (ret?.tipo === 'recovery' || ret?.tipo === 'invite') { etapa = 'nova-senha'; telaLogin(); return; }
+    if (ret?.tipo === 'recovery' || ret?.tipo === 'invite') { try { localStorage.setItem('editor-nova-senha', '1'); } catch {} }
     const ses = await sessao();
+    // veio do link de criar/trocar senha (mesmo que a página tenha recarregado no meio): pede a senha nova antes de abrir
+    let novaSenha = false; try { novaSenha = localStorage.getItem('editor-nova-senha') === '1'; } catch {}
+    if (ses && novaSenha) { etapa = 'nova-senha'; telaLogin(); return; }
     if (!ses) { etapa = 'senha'; telaLogin(); if (ret?.erro) msg(ret.erro, true); return; }
     try { await entrar(); } catch { etapa = 'senha'; telaLogin(); }
   });

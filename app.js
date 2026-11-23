@@ -4,7 +4,7 @@
 
 import { TEMPLATES, LAYOUTS, tplById, layoutById, parseMarked, stripMarks, drawCapTpl, drawLayout, drawLayoutFx, countUnits, drawPreview, loadTemplateFonts } from './estilos.js?v=25';
 import { ANIM_GROUPS, presetsOf, presetByName, animLabel, SPLIT_LABEL, layerPhase, hasAnim, splitSlices, sliceState, applyState, makePlan, emphasisTime } from './animacoes.js?v=25';
-import * as conta from './conta.js?v=25';
+import * as conta from './conta.js?v=25b';
 import { criarAgente } from './agente.js?v=25';
 const seedOf = (id) => { let h = 7; for (const c of String(id)) h = (h * 31 + c.charCodeAt(0)) >>> 0; return h % 100000; };
 
