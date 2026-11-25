@@ -371,7 +371,7 @@ body.sheet-open #btn-kf.ready { background: var(--accent); border-color: var(--a
 .kit-ref { display: grid; grid-template-columns: 1fr auto; gap: 6px; padding: 10px; border: 1px solid var(--line); border-radius: var(--r-xs); margin-bottom: 8px; }
 .kit-ref [data-k="nota"] { grid-column: 1; }
 .kit-ref .mini { grid-row: 1 / span 2; grid-column: 2; align-self: center; }
-#aviso-instalar { position: fixed; left: 12px; right: 12px; bottom: calc(12px + env(safe-area-inset-bottom)); z-index: 60; display: flex; align-items: center; gap: 10px;
+#aviso-instalar { position: fixed; left: 12px; right: 12px; top: calc(64px + env(safe-area-inset-top)); z-index: 60; display: flex; align-items: center; gap: 10px;
   padding: 12px 12px 12px 16px; border-radius: var(--r-sm); background: rgba(26, 16, 48, .96); border: 1px solid var(--line-2); box-shadow: 0 10px 30px rgba(0, 0, 0, .5); font-size: 13.5px; line-height: 1.35; }
 #aviso-instalar span { flex: 1; }
 #aviso-instalar a { color: #fff; background: var(--accent); padding: 8px 12px; border-radius: 999px; text-decoration: none; font-weight: 600; white-space: nowrap; }
@@ -408,3 +408,16 @@ body.sheet-open #btn-kf.ready { background: var(--accent); border-color: var(--a
 .fp-get.ok { color: var(--ink-3); }
 .fp-row.busy { opacity: .6; }
 .fp-del svg { width: 18px; height: 18px; color: var(--danger); }
+
+/* ---------- Texto rico (v27) ---------- */
+.tx-in.rich { resize: none; min-height: 64px; max-height: 160px; overflow-y: auto; white-space: pre-wrap; word-break: break-word; font-size: 20px; line-height: 1.35; -webkit-user-select: text; user-select: text; cursor: text; }
+.tx-in.rich:empty::before { content: 'Digite o texto'; color: var(--ink-4); }
+.rich-scope { font-size: 12.5px; color: var(--ink-3); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-height: 32px; margin: 2px 0 8px; }
+.rich-scope b { color: var(--ink); font-weight: 600; }
+.rich-scope.on { color: var(--accent-2); }
+.chip.sm { height: 28px; padding: 0 12px; font-size: 12px; }
+.fmt-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.fmt { width: 44px; height: 44px; border-radius: 14px; background: var(--glass-2); border: 1px solid var(--line); font-size: 18px; display: inline-flex; align-items: center; justify-content: center; color: var(--ink); }
+.fmt svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+.fmt.on { background: #fff; color: #000; border-color: #fff; }
+.fmt-sep { width: 1px; height: 26px; background: var(--line-2); margin: 0 4px; }

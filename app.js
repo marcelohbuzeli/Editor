@@ -6,6 +6,7 @@ import { TEMPLATES, LAYOUTS, tplById, layoutById, parseMarked, stripMarks, drawC
 import { ANIM_GROUPS, presetsOf, presetByName, animLabel, SPLIT_LABEL, layerPhase, hasAnim, splitSlices, sliceState, applyState, makePlan, emphasisTime } from './animacoes.js?v=26';
 import * as conta from './conta.js?v=25b';
 import { criarAgente } from './agente.js?v=26';
+import * as RT from './textorico.js?v=27';
 const seedOf = (id) => { let h = 7; for (const c of String(id)) h = (h * 31 + c.charCodeAt(0)) >>> 0; return h % 100000; };
 
 const $ = (s, el = document) => el.querySelector(s);
@@ -79,7 +80,7 @@ let galeria = null;   // dados do projeto aberto na galeria: { id, titulo, clien
 const DEFAULT_CAP = { font: 'Poppins', weight: 700, size: 60, color: '#FFFFFF', shadow: 60, blur: 12, y: 0.75, upper: false };
 const DEFAULT_FX = {
   fadeIn: { on: false, dur: 0.5 }, fadeOut: { on: false, dur: 1.0 }, fadeAudio: true,
-  flashDur: 0.3, click: true, clickDb: -10, autoTr: 'flash',
+  flashDur: 0.3, click: true, clickDb: -10,
   burnDur: 1.0, burnSound: true, burnDb: -12,
 };
 const TR_LABEL = { none: 'Nenhuma', flash: 'Flash', burn: 'Film burn' };
@@ -102,7 +103,8 @@ const S = {
 };
 // v3: novos padrões de legenda (60 / 75%) e fades desligados por padrão
 if ((prefs.v || 0) < 3) { S.cap.size = 60; S.cap.y = 0.75; S.fx.fadeOut.on = false; S.fx.fadeIn.on = false; }
-if (prefs.fx && prefs.fx.autoTr == null) S.fx.autoTr = prefs.fx.autoFlash === false ? 'none' : 'flash';
+// v27: nada entra sozinho. Corte e vídeo novo nunca recebem transição; ela só existe se a pessoa colocar.
+delete S.fx.autoTr; delete S.fx.autoFlash;
 // Cada clipe tem o áudio original vinculado: aOn (ligado), volume, afi/afo (fade in/out em segundos)
 const normClip = (c) => { c.aOn ??= true; c.volume ??= 1; c.afi ??= 0; c.afo ??= 0; c.vfi ??= 0; c.vfo ??= 0; c.vfa ??= true; c.transition ??= 'none'; return c; };
 const media = new Map();    // id -> { id, name, url, duration, w, h, bufferId, thumb }
@@ -803,7 +805,7 @@ function renderToolbar() {
     ];
   } else {
     items = [
-      ['plus', 'Novo', () => $('#file-video').click()], ['music', 'Áudio', openAudioHub],
+      ['plus', 'Novo', () => $('#file-video').click()], ...(S.clips.length ? [['scissors', 'Dividir', splitAtPlayhead]] : []), ['music', 'Áudio', openAudioHub],
       ['type', 'Texto', () => openCaptions('livre')], ['layers', 'Camada', () => $('#file-layer').click()],
       ['contrast', 'Ajustes', addAdjustLayer],
     ];
@@ -817,7 +819,7 @@ function renderToolbar() {
 }
 
 // ---------- Ações de edição ----------
-function newClipTransition() { return S.fx.autoTr || 'none'; }
+function newClipTransition() { return 'none'; }
 function splitAtPlayhead() {
   if (S.sel?.type === 'audio') return splitAudio(S.sel.id);
   if (S.sel?.type === 'layer') return splitLayer(S.sel.id);
@@ -1041,8 +1043,6 @@ async function openTransitions() {
       <button class="chip" data-all="burn">${inlineIc('flame')} Film burn</button>
       <button class="chip" data-all="none">Remover</button>
     </div>
-    <div class="sec">Automática em cortes novos</div>
-    <div class="chips">${['none', 'flash', 'burn'].map((k) => `<button class="chip ${fx.autoTr === k ? 'on' : ''}" data-auto="${k}">${TR_LABEL[k]}</button>`).join('')}</div>
     <div class="sec">${inlineIc('zap')} Flash</div>
     ${rangeRow('flashDur', 'Duração', 0.1, 0.8, 0.05, fx.flashDur, sec)}
     <div class="row"><label>Som</label><span class="spacer"></span><input type="checkbox" class="tg" id="clk" ${fx.click ? 'checked' : ''}></div>
@@ -1065,9 +1065,6 @@ async function openTransitions() {
       const k = el.dataset.all; commit();
       S.clips.forEach((c, i) => (c.transition = i ? k : 'none')); renderTimeline(); draw();
       toast(k === 'none' ? 'Transições removidas' : `${TR_LABEL[k]} aplicado em todos os cortes`);
-    });
-    b.querySelectorAll('[data-auto]').forEach((el) => el.onclick = () => {
-      commit(); fx.autoTr = el.dataset.auto; b.querySelectorAll('[data-auto]').forEach((x) => x.classList.toggle('on', x === el));
     });
     const test = async (type, db) => {
       const file = type === 'flash' ? fx.flashSnd : fx.burnSnd; if (file) { try { await sfxBuffer(file); } catch {} }
@@ -1697,12 +1694,9 @@ function drawLayers(ctx, W, H, t, pre) {
 // ---------- Camada de texto (texto livre, independente das legendas automáticas) ----------
 const TEXT_BG = [['', 'Nenhum'], ['#000000', 'Preto'], ['#FFFFFF', 'Branco'], ['#FFD84D', 'Amarelo'], ['#7C4DFF', 'Roxo']];
 function textMetrics(ctx, W, H, L) {
-  const k = Math.min(W, H) / 1080, fs = (L.size || 80) * k;
-  ctx.font = `${L.weight || 700} ${fs}px ${fontCss(L.font)}`;
-  const raw = stripMarks(L.text); const txt = (L.upper ? raw.toUpperCase() : raw).trim() || ' ';
-  const lines = wrapLines(ctx, txt, W * 0.86);
-  const lh = fs * 1.2, w = Math.max(fs * 0.5, ...lines.map((l) => ctx.measureText(l).width));
-  return { k, fs, lines, lh, w, h: lines.length * lh };
+  // texto rico: cada trecho com fonte, cor, tamanho e espaçamento próprios (textorico.js)
+  const m = RT.richLayout(ctx, L, W, H, fontCss, W * 0.86);
+  m.fs = (L.size || 80) * m.k; return m;
 }
 function drawTextLayer(ctx, W, H, L, t, pre) {
   const s = L.in + (t - L.start);
@@ -1734,21 +1728,18 @@ function drawTextLayer(ctx, W, H, L, t, pre) {
       if (ctx.roundRect) ctx.roundRect(-bw / 2, -bh / 2, bw, bh, m.fs * 0.25); else ctx.rect(-bw / 2, -bh / 2, bw, bh);
       ctx.fill();
     }
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = L.color || '#FFFFFF';
     if (L.shadow && !L.bg) { ctx.shadowColor = 'rgba(0,0,0,.7)'; ctx.shadowBlur = 12 * m.k; }
-    let y = -(m.lines.length - 1) * m.lh / 2;
+    const placed = RT.placeLines(m, L.align || 'center');
     const anim = !stillPreview && hasAnim(L.anim) ? L.anim : null;
     if (anim) {
-      // animação por pedaço (letra, palavra ou linha, conforme o preset)
-      const pos = m.lines.map((ln, i) => { const w = ctx.measureText(ln).width; return { text: ln, x: -w / 2, y: y + i * m.lh, w }; });
-      const sl = {}; const slicesOf = (pr) => (sl[pr.s] ??= splitSlices(ctx, pos, pr.s, m.lh));
-      const len = L.out - L.in, ph = layerPhase(anim, (pr) => slicesOf(pr).length, t - L.start, len, seedOf(L.id));
-      ctx.textAlign = 'left';
-      if (ph) slicesOf(ph.P.pr).forEach((q, i) => {
-        ctx.save(); if (applyState(ctx, sliceState(ph.P, i, ph.t), { x: q.x, y: q.y - q.h / 2, w: q.w, h: q.h }, m.fs / 48, ph.P.pr.p)) ctx.fillText(q.s, q.x, q.y); ctx.restore();
+      // animação por pedaço (letra, palavra ou linha, conforme o preset); cada pedaço mantém o estilo do trecho
+      const un = {}; const unitsOf = (pr) => (un[pr.s] ??= RT.richUnits(ctx, m, placed, pr.s, fontCss));
+      const len = L.out - L.in, ph = layerPhase(anim, (pr) => unitsOf(pr).length, t - L.start, len, seedOf(L.id));
+      if (ph) unitsOf(ph.P.pr).forEach((q, i) => {
+        ctx.save(); if (applyState(ctx, sliceState(ph.P, i, ph.t), q, m.fs / 48, ph.P.pr.p)) q.draw(); ctx.restore();
       });
-      else for (const q of pos) ctx.fillText(q.text, q.x, q.y);
-    } else for (const ln of m.lines) { ctx.fillText(ln, 0, y); y += m.lh; }
+      else RT.drawRich(ctx, m, placed, fontCss);
+    } else RT.drawRich(ctx, m, placed, fontCss);
   }
   const seld = pre && S.sel?.type === 'layer' && S.sel.id === L.id && !E.playing && !FSP.on;
   if (seld) { ctx.globalAlpha = 1; ctx.shadowColor = 'transparent'; ctx.strokeStyle = '#b48cff'; ctx.lineWidth = 2 / sc; ctx.setLineDash([6 / sc, 4 / sc]); ctx.strokeRect(-bw / 2 - 4, -bh / 2 - 4, bw + 8, bh + 8); }
@@ -1764,56 +1755,139 @@ function addTextLayer() {
   S.layers.push(L); S.sel = { type: 'layer', id: L.id }; refresh();
   openTextSheet(L.id, true);
 }
+// Seleção dentro do editor de texto rico: guardada aqui para continuar valendo quando o dedo vai para um botão ou controle
+let richEd = null, richSel = null, richOnSel = null, richPaintAt = 0;
+document.addEventListener('selectionchange', () => {
+  if (!richEd || !richEd.isConnected) return;
+  const o = RT.getOffsets(richEd); if (!o) return;
+  // repintar o editor (depois de aplicar um estilo) mexe na seleção do navegador: isso não é a pessoa desmarcando
+  if (o.a === o.b && richSel && (performance.now() - richPaintAt < 250 || document.activeElement !== richEd)) return;
+  richSel = o.b > o.a ? o : null; richOnSel?.();
+});
+const lum = (hex) => { const m = /^#?([0-9a-f]{6})$/i.exec(hex || ''); if (!m) return 1; const n = parseInt(m[1], 16); return (0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255; };
 function openTextSheet(id, fresh = false) {
   const L = S.layers.find((x) => x.id === id); if (!L || L.kind !== 'text') return;
   const T = kfTarget({ type: 'layer', id });
   if (L.layout) return openTplTextSheet(L, T, fresh);
+  richSel = null;
+  const fmtBtn = (k, label, icon) => `<button class="fmt" data-fmt="${k}" aria-label="${label}" title="${label}">${icon}</button>`;
   openSheet('layer', 'Texto', `
-    <textarea id="tx-text" class="tx-in" rows="2" placeholder="Digite o texto">${esc(L.text)}</textarea>
+    <div id="tx-rich" class="tx-in rich" contenteditable="true" spellcheck="false" autocapitalize="sentences" role="textbox" aria-multiline="true" aria-label="Texto"></div>
+    <div class="rich-scope" id="tx-scope"></div>
+    <div class="fmt-row">
+      ${fmtBtn('b', 'Negrito', '<b>B</b>')}${fmtBtn('i', 'Itálico', '<i style="font-family:Georgia,serif">I</i>')}${fmtBtn('u', 'Sublinhado', '<u>U</u>')}
+      <span class="fmt-sep"></span>
+      ${fmtBtn('al', 'Alinhar à esquerda', '<svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h10M4 18h13"/></svg>')}${fmtBtn('ac', 'Centralizar', '<svg viewBox="0 0 24 24"><path d="M4 6h16M7 12h10M5.5 18h13"/></svg>')}${fmtBtn('ar', 'Alinhar à direita', '<svg viewBox="0 0 24 24"><path d="M4 6h16M10 12h10M7 18h13"/></svg>')}
+    </div>
     <div class="sec">Fonte</div>
-    <div class="chips">${fontChips(L.font)}</div>
+    <div class="chips" data-keep>${fontChips(L.font)}</div>
     <div class="sec">Peso</div>
-    <div class="chips">${[[400, 'Normal'], [600, 'Médio'], [700, 'Negrito'], [800, 'Extra']].map(([w, l]) => `<button class="chip ${L.weight === w ? 'on' : ''}" data-weight="${w}">${l}</button>`).join('')}</div>
+    <div class="chips" data-keep>${[[400, 'Normal'], [600, 'Médio'], [700, 'Negrito'], [800, 'Extra']].map(([w, l]) => `<button class="chip" data-weight="${w}">${l}</button>`).join('')}</div>
     <div class="sec">Cor</div>
-    <div class="chips">${COLORS.map((x) => `<button class="sw ${(L.color || '').toUpperCase() === x ? 'on' : ''}" data-color="${x}" style="background:${x}" aria-label="Cor ${x}"></button>`).join('')}<input type="color" id="tx-color" value="${L.color}" aria-label="Outra cor"></div>
+    <div class="chips" data-keep>${TPL_COLORS.map((x) => `<button class="sw" data-color="${x}" style="background:${x}" aria-label="Cor ${x}"></button>`).join('')}<input type="color" id="tx-color" value="${L.color || '#FFFFFF'}" aria-label="Outra cor"></div>
+    ${rangeRow('ts', 'Tamanho', 24, 240, 1, L.size || 80, (v) => v, 80)}
+    ${rangeRow('tls', 'Espaço entre letras', -10, 60, 1, L.ls || 0, (v) => v, 0)}
+    ${rangeRow('tlh', 'Espaço entre linhas', 0.7, 2.4, 0.05, L.lh || 1.2, (v) => (+v).toFixed(2), 1.2)}
     <div class="sec">Fundo</div>
     <div class="chips">${TEXT_BG.map(([c, l]) => `<button class="chip ${(L.bg || '') === c ? 'on' : ''}" data-bg="${c}">${l}</button>`).join('')}</div>
-    ${rangeRow('ts', 'Tamanho', 24, 240, 1, L.size, (v) => v, 80)}
+    <div class="row"><label>Sombra</label><span class="spacer"></span><input type="checkbox" class="tg" id="tx-shadow" ${L.shadow ? 'checked' : ''}></div>
+    <div class="row"><label>Maiúsculas</label><span class="spacer"></span><input type="checkbox" class="tg" id="tx-upper" ${L.upper ? 'checked' : ''}></div>
+    <div class="sec">Posição e tempo</div>
     ${rangeRow('lx', 'Horizontal', 0, 100, 1, Math.round(kfGet(T, 'x') * 100), pctf)}
     ${rangeRow('ly', 'Vertical', 0, 100, 1, Math.round(kfGet(T, 'y') * 100), pctf, 35)}
     ${rangeRow('ld', 'Duração', 0.5, 60, 0.1, L.out - L.in, sec)}
-    <div class="row"><label>Sombra</label><span class="spacer"></span><input type="checkbox" class="tg" id="tx-shadow" ${L.shadow ? 'checked' : ''}></div>
-    <div class="row"><label>Maiúsculas</label><span class="spacer"></span><input type="checkbox" class="tg" id="tx-upper" ${L.upper ? 'checked' : ''}></div>
     <button class="btn" id="l-anim">${inlineIc('zap')} Animação: ${esc(animSummary(L.anim))}</button>
     <button class="btn" id="l-kf">${inlineIc('key')} Animar com keyframes</button>
-    <p class="note">O texto fica numa camada própria, por cima do vídeo, e não muda as legendas automáticas. Arraste na prévia para mover; com dois dedos, aumenta ou diminui.</p>`,
+    <p class="note">Selecione uma parte do texto para mudar só ela (cor, fonte, tamanho, espaço entre letras). Sem seleção, a mudança vale para o texto todo. Na prévia: arraste para mover (o ímã centraliza e respeita as margens) e use dois dedos para aumentar.</p>`,
   (b) => {
-    const ta = $('#tx-text', b); let pend = null, tlT = 0;
-    ta.addEventListener('input', () => { if (!pend) pend = snap(); L.text = ta.value; draw(); clearTimeout(tlT); tlT = setTimeout(renderTimeline, 250); });
-    ta.addEventListener('change', () => { if (pend) pushHist(pend); pend = null; renderTimeline(); });
-    if (fresh) setTimeout(() => { ta.focus(); ta.select(); }, 60);
-    const pick = (attr, fn) => b.querySelectorAll(`[data-${attr}]`).forEach((el) => el.onclick = () => {
-      commit(); fn(el.dataset[attr]); b.querySelectorAll(`[data-${attr}]`).forEach((x) => x.classList.toggle('on', x === el)); draw();
+    const ed = $('#tx-rich', b); richEd = ed;
+    let pend = null, tlT = 0;
+    const begin = () => { if (!pend) pend = snap(); };
+    const endEdit = () => { if (pend) pushHist(pend); pend = null; renderTimeline(); };
+    const changed = () => { draw(); clearTimeout(tlT); tlT = setTimeout(renderTimeline, 250); };
+    const paint = () => {
+      richPaintAt = performance.now();
+      ed.innerHTML = RT.runsHTML(L, fontCss);
+      ed.style.cssText = RT.editorCss(L, fontCss) + `color:${L.color || '#FFFFFF'};background:${lum(L.color) < 0.35 ? '#ece8f4' : ''}`;
+      if (richSel && document.activeElement === ed) RT.setOffsets(ed, richSel.a, richSel.b);
+    };
+    const st = (k) => RT.styleIn(L, richSel?.a, richSel?.b, k);
+    const ui = () => {
+      const sc = $('#tx-scope', b);
+      sc.innerHTML = richSel
+        ? `<span>Mudando só <b>“${esc(L.text.slice(richSel.a, richSel.b).replace(/\n/g, ' ').slice(0, 28))}${richSel.b - richSel.a > 28 ? '…' : ''}”</b></span><button class="chip sm" id="tx-all">Aplicar no texto todo</button>`
+        : '<span>Mudando <b>o texto todo</b>. Selecione uma parte para mudar só ela.</span>';
+      sc.classList.toggle('on', !!richSel);
+      const all = $('#tx-all', b); if (all) { all.onpointerdown = (e) => e.preventDefault(); all.onclick = () => { richSel = null; const s2 = document.getSelection(); if (ed.contains(s2.anchorNode)) s2.collapseToEnd(); ui(); }; }
+      const w = st('w');
+      b.querySelector('[data-fmt="b"]').classList.toggle('on', w != null && w >= 700);
+      b.querySelector('[data-fmt="i"]').classList.toggle('on', !!st('i'));
+      b.querySelector('[data-fmt="u"]').classList.toggle('on', !!st('u'));
+      ['al', 'ac', 'ar'].forEach((k) => b.querySelector(`[data-fmt="${k}"]`).classList.toggle('on', (L.align || 'center') === { al: 'left', ac: 'center', ar: 'right' }[k]));
+      const f = st('f'), c = (st('c') || '').toUpperCase();
+      b.querySelectorAll('[data-font]').forEach((x) => x.classList.toggle('on', x.dataset.font === f));
+      b.querySelectorAll('[data-weight]').forEach((x) => x.classList.toggle('on', +x.dataset.weight === w));
+      b.querySelectorAll('[data-color]').forEach((x) => x.classList.toggle('on', x.dataset.color.toUpperCase() === c));
+      if (c) $('#tx-color', b).value = c.length === 7 ? c : '#FFFFFF';
+      const setR = (k, v, f2) => { const el = b.querySelector(`[data-k="${k}"]`), out = b.querySelector(`[data-v="${k}"]`); if (v != null && el) { el.value = v; out.textContent = f2(v); } else if (out) out.textContent = '—'; };
+      setR('ts', st('sz'), (v) => v); setR('tls', st('ls'), (v) => v);
+    };
+    richOnSel = ui;
+    // aplica um estilo no trecho selecionado (ou no texto todo) e repinta
+    const apply = (k, v, hist = true) => {
+      if (hist) commit();
+      RT.applyStyle(L, richSel?.a, richSel?.b, k, v);
+      paint();
+      if (k === 'f' || k === 'w' || k === 'i') document.fonts.load(`${st('i') ? 'italic ' : ''}${st('w') || 700} 40px ${fontCss(st('f') || L.font)}`).then(draw).catch(() => {});
+      ui(); draw();
+    };
+    paint(); ui();
+    if (fresh) setTimeout(() => { ed.focus(); RT.setOffsets(ed, 0, L.text.length); }, 60);
+    // digitação: o navegador edita o texto; lemos de volta para os trechos
+    const readBack = () => {
+      begin(); const o = RT.getOffsets(ed);
+      RT.setRuns(L, RT.readEditor(ed));
+      if (!RT.isClean(ed)) { paint(); if (o) RT.setOffsets(ed, o.a, o.b); }
+      changed();
+    };
+    ed.addEventListener('input', (e) => { if (!e.isComposing) readBack(); });
+    ed.addEventListener('compositionend', readBack);
+    const putText = (txt) => {
+      const o = RT.getOffsets(ed) || { a: L.text.length, b: L.text.length };
+      begin(); RT.insertText(L, o.a, o.b, txt); paint(); RT.setOffsets(ed, o.a + txt.length, o.a + txt.length); changed();
+    };
+    ed.addEventListener('beforeinput', (e) => { if (e.inputType === 'insertParagraph' || e.inputType === 'insertLineBreak') { e.preventDefault(); putText('\n'); } });
+    ed.addEventListener('paste', (e) => { e.preventDefault(); const t = (e.clipboardData || window.clipboardData)?.getData('text/plain') || ''; if (t) putText(t.replace(/\r\n?/g, '\n')); });
+    ed.addEventListener('focusout', endEdit);
+    // botões não roubam o foco (a seleção continua marcada no texto)
+    b.querySelectorAll('.fmt, [data-keep] button').forEach((el) => el.addEventListener('pointerdown', (e) => e.preventDefault()));
+    b.querySelectorAll('[data-fmt]').forEach((el) => el.onclick = () => {
+      const k = el.dataset.fmt;
+      if (k === 'b') { const w = st('w'); apply('w', w != null && w >= 700 ? 400 : 800); }
+      else if (k === 'i') apply('i', !st('i'));
+      else if (k === 'u') apply('u', !st('u'));
+      else { commit(); L.align = { al: 'left', ac: 'center', ar: 'right' }[k]; paint(); ui(); draw(); }
     });
-    const loadF = () => document.fonts.load(`${L.weight} 40px ${fontCss(L.font)}`).then(draw);
-    pick('font', (v) => { L.font = v; loadF(); });
-    bindAddFont(b, (id) => { commit(); L.font = id; openTextSheet(L.id); loadF(); });
-    pick('weight', (v) => { L.weight = +v; loadF(); });
-    pick('color', (v) => { L.color = v; $('#tx-color', b).value = v; });
-    pick('bg', (v) => { L.bg = v; });
+    b.querySelectorAll('[data-font]').forEach((el) => el.onclick = () => apply('f', el.dataset.font));
+    bindAddFont(b, (fid) => { commit(); RT.applyStyle(L, richSel?.a, richSel?.b, 'f', fid); openTextSheet(L.id); });
+    b.querySelectorAll('[data-weight]').forEach((el) => el.onclick = () => apply('w', +el.dataset.weight));
+    b.querySelectorAll('[data-color]').forEach((el) => el.onclick = () => apply('c', el.dataset.color));
     let cp = null;
-    $('#tx-color', b).addEventListener('input', (e) => { if (!cp) cp = snap(); L.color = e.target.value.toUpperCase(); b.querySelectorAll('[data-color]').forEach((x) => x.classList.remove('on')); draw(); });
+    $('#tx-color', b).addEventListener('input', (e) => { if (!cp) cp = snap(); apply('c', e.target.value.toUpperCase(), false); });
     $('#tx-color', b).addEventListener('change', () => { if (cp) pushHist(cp); cp = null; });
+    b.querySelectorAll('[data-bg]').forEach((el) => el.onclick = () => { commit(); L.bg = el.dataset.bg; b.querySelectorAll('[data-bg]').forEach((x) => x.classList.toggle('on', x === el)); draw(); });
     $('#tx-shadow', b).addEventListener('change', (e) => { commit(); L.shadow = e.target.checked; draw(); });
-    $('#tx-upper', b).addEventListener('change', (e) => { commit(); L.upper = e.target.checked; draw(); });
+    $('#tx-upper', b).addEventListener('change', (e) => { commit(); L.upper = e.target.checked; paint(); draw(); });
     bindRanges(b, {
-      ts: { set: (v) => (L.size = v), fmt: (v) => v },
+      ts: { set: (v) => { RT.applyStyle(L, richSel?.a, richSel?.b, 'sz', v); paint(); }, fmt: (v) => v },
+      tls: { set: (v) => { RT.applyStyle(L, richSel?.a, richSel?.b, 'ls', v); paint(); }, fmt: (v) => v },
+      tlh: { set: (v) => (L.lh = v), fmt: (v) => (+v).toFixed(2) },
       lx: { set: (v) => kfPut(T, 'x', v / 100), fmt: pctf, after: renderTimeline }, ly: { set: (v) => kfPut(T, 'y', v / 100), fmt: pctf, after: renderTimeline },
       ld: { set: (v) => (L.out = L.in + v), fmt: sec, after: renderTimeline },
     });
     $('#l-kf', b).onclick = openKfSheet;
-    $('#l-anim', b).onclick = () => openAnimSheet({ title: 'Animação do texto', sample: stripMarks(L.text).split('\n')[0].slice(0, 24) || 'Seu texto', get: () => L.anim, set: (a) => { L.anim = a; }, back: () => openTextSheet(L.id) });
-    loadF();
+    $('#l-anim', b).onclick = () => openAnimSheet({ title: 'Animação do texto', sample: L.text.split('\n')[0].slice(0, 24) || 'Seu texto', get: () => L.anim, set: (a) => { L.anim = a; }, back: () => openTextSheet(L.id) });
+    document.fonts.load(`${L.weight || 700} 40px ${fontCss(L.font)}`).then(draw).catch(() => {});
   });
 }
 // Painel do texto de modelo: texto, modelo, layout, tamanho, posição e duração
@@ -2122,7 +2196,7 @@ pv.addEventListener('pointerdown', (e) => {
   if (E.playing || FSP.on) return;
   if (ldrag && ptrs.size === 2) {
     const [p1, p2] = [...ptrs.values()]; ldrag.pinch = { d0: Math.hypot(p1.x - p2.x, p1.y - p2.y), s0: kfGet(ldrag.T, 'scale') };
-    pv.setPointerCapture(e.pointerId); return;
+    try { pv.setPointerCapture(e.pointerId); } catch {} return;
   }
   const rect = pv.getBoundingClientRect(), px = (e.clientX - rect.left) * pv.width / rect.width, py = (e.clientY - rect.top) * pv.height / rect.height;
   const hit = [...layerRects].reverse().find((r) => px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h);
@@ -2136,9 +2210,53 @@ pv.addEventListener('pointerdown', (e) => {
     T = kfTarget(); if (!T || S.t < T.a || S.t >= T.b) return;
   } else return;
   if (!T) return;
-  ldrag = { T, sx: e.clientX, sy: e.clientY, x0: kfGet(T, 'x'), y0: kfGet(T, 'y'), pend: snap(), rect, moved: false };
-  pv.setPointerCapture(e.pointerId);
+  // tamanho da caixa (0..1 da tela) para o ímã alinhar bordas nas margens; os outros itens visíveis viram alvos também
+  const bw = hit ? hit.w / pv.width : 0, bh = hit ? hit.h / pv.height : 0;
+  const others = layerRects.filter((r) => !hit || r.id !== hit.id).map((r) => ({ cx: (r.x + r.w / 2) / pv.width, cy: (r.y + r.h / 2) / pv.height }));
+  ldrag = { T, sx: e.clientX, sy: e.clientY, x0: kfGet(T, 'x'), y0: kfGet(T, 'y'), pend: snap(), rect, moved: false, bw, bh, others, snapped: '' };
+  try { pv.setPointerCapture(e.pointerId); } catch {}
 });
+// ---------- Ímã de alinhamento: centro, margens e outros itens ----------
+const SAFE = 0.05;     // margem de segurança (5% de cada lado)
+const SNAP_PX = 9;     // distância na tela (px) em que o ímã puxa
+let guides = null;     // { v: [x...], h: [y...] } linhas acesas durante o arrasto
+function snapAxis(v, half, thr, targets) {
+  // devolve [valor final, posição da linha acesa | null]; testa centro do item e as duas bordas
+  let best = null;
+  for (const t of targets) {
+    for (const [off, kind] of [[0, 'c'], [-half, 'a'], [half, 'b']]) {
+      if (kind !== 'c' && !half) continue;
+      if (t.k && t.k !== kind) continue;
+      const d = Math.abs(v + off - t.p);
+      if (d < thr && (!best || d < best.d)) best = { d, v: t.p - off, line: t.p };
+    }
+  }
+  return best ? [best.v, best.line] : [v, null];
+}
+function snapMove(x, y) {
+  const g = { v: [], h: [] };
+  const tx = [{ p: 0.5, k: 'c' }, { p: SAFE, k: 'a' }, { p: 1 - SAFE, k: 'b' }, ...ldrag.others.map((o) => ({ p: o.cx, k: 'c' }))];
+  const ty = [{ p: 0.5, k: 'c' }, { p: SAFE, k: 'a' }, { p: 1 - SAFE, k: 'b' }, ...ldrag.others.map((o) => ({ p: o.cy, k: 'c' }))];
+  const [nx, lx] = snapAxis(x, ldrag.bw / 2, SNAP_PX / ldrag.rect.width, tx);
+  const [ny, ly] = snapAxis(y, ldrag.bh / 2, SNAP_PX / ldrag.rect.height, ty);
+  if (lx != null) g.v.push(lx); if (ly != null) g.h.push(ly);
+  const key = `${lx}|${ly}`;
+  if (key !== ldrag.snapped && (lx != null || ly != null)) { try { navigator.vibrate?.(8); } catch {} }
+  ldrag.snapped = key; guides = g;
+  return [nx, ny];
+}
+function drawGuides() {
+  if (!guides || !ldrag) return;
+  const c = pctx, W = pv.width, H = pv.height;
+  c.save();
+  // margens de segurança: tracejado discreto enquanto arrasta
+  c.strokeStyle = 'rgba(255,255,255,.28)'; c.lineWidth = 1; c.setLineDash([4, 4]);
+  c.strokeRect(SAFE * W, SAFE * H, (1 - 2 * SAFE) * W, (1 - 2 * SAFE) * H);
+  c.setLineDash([]); c.strokeStyle = '#ff3ea5'; c.lineWidth = 1.5;
+  for (const x of guides.v) { c.beginPath(); c.moveTo(x * W, 0); c.lineTo(x * W, H); c.stroke(); }
+  for (const y of guides.h) { c.beginPath(); c.moveTo(0, y * H); c.lineTo(W, y * H); c.stroke(); }
+  c.restore();
+}
 pv.addEventListener('pointermove', (e) => {
   if (!ptrs.has(e.pointerId)) return;
   ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -2146,14 +2264,15 @@ pv.addEventListener('pointermove', (e) => {
   if (ldrag.pinch && ptrs.size >= 2) {
     const [p1, p2] = [...ptrs.values()]; kfPut(ldrag.T, 'scale', clamp(ldrag.pinch.s0 * Math.hypot(p1.x - p2.x, p1.y - p2.y) / (ldrag.pinch.d0 || 1), 0.05, 3));
   } else if (!ldrag.pinch) {
-    kfPut(ldrag.T, 'x', clamp(ldrag.x0 + (e.clientX - ldrag.sx) / ldrag.rect.width, -0.5, 1.5));
-    kfPut(ldrag.T, 'y', clamp(ldrag.y0 + (e.clientY - ldrag.sy) / ldrag.rect.height, -0.5, 1.5));
+    const [nx, ny] = snapMove(ldrag.x0 + (e.clientX - ldrag.sx) / ldrag.rect.width, ldrag.y0 + (e.clientY - ldrag.sy) / ldrag.rect.height);
+    kfPut(ldrag.T, 'x', clamp(nx, -0.5, 1.5));
+    kfPut(ldrag.T, 'y', clamp(ny, -0.5, 1.5));
   }
-  ldrag.moved = true; draw();
+  ldrag.moved = true; draw(); drawGuides();
 });
 const endPtr = (e) => {
   ptrs.delete(e.pointerId);
-  if (ldrag && ptrs.size === 0) { if (ldrag.moved) { pushHist(ldrag.pend); renderTimeline(); } ldrag = null; if (sheetKind === 'layer' && S.sel) openLayerSheet(S.sel.id); kfSync(); }
+  if (ldrag && ptrs.size === 0) { guides = null; draw(); if (ldrag.moved) { pushHist(ldrag.pend); renderTimeline(); } ldrag = null; if (sheetKind === 'layer' && S.sel) openLayerSheet(S.sel.id); kfSync(); }
 };
 pv.addEventListener('pointerup', endPtr); pv.addEventListener('pointercancel', endPtr);
 
@@ -2542,11 +2661,11 @@ function ensureCaptionVisible() {
   const sp = capSpans()[0]; if (sp) seekTo(sp.start + 0.01);
 }
 function capGenHTML() {
-  if (prefs.groqKey) return `
-    <p class="note">Usa o modelo mais preciso (Whisper large v3), com 4 palavras por bloco. É só tocar no botão.</p>
+  if (prefs.groqKey || servidorLegenda) return `
+    <p class="note">Transcreve a fala com o modelo mais preciso (Whisper large v3), 4 palavras por bloco. Só a voz sai do aparelho, nunca o vídeo.</p>
     <button class="btn primary" id="gen">Gerar legendas</button>
     <div class="progress"><div id="gen-bar"></div></div><p class="note" id="gen-st"></p>
-    <button class="btn" id="key-change" style="font-weight:400;font-size:13px;background:none;color:var(--muted)">Trocar chave da Groq</button>`;
+    ${prefs.groqKey ? '<button class="btn" id="key-change" style="font-weight:400;font-size:13px;background:none;color:var(--muted)">Trocar chave da Groq</button>' : ''}`;
   return `
     <div class="sec">Configuração (só na primeira vez)</div>
     <p class="note">Cole aqui sua chave da Groq (começa com <b>gsk_</b>). Ela fica salva só neste aparelho.</p>
@@ -2561,6 +2680,8 @@ function bindCapGen(b) {
     try { await transcribeAll(st); st('Pronto! Confira e edite o texto na aba Texto.', 100); setTimeout(() => sheetKind === 'captions' && openCaptions('texto'), 900); }
     catch (e) {
       console.error(e);
+      if (e.precisaChave) { openCaptions('gerar'); return; }
+      if (/^cancelado/.test(e.message)) { st(e.message[0].toUpperCase() + e.message.slice(1) + '.', 0); return; }
       if (/401|invalid_api_key/i.test(e.message)) { prefs.groqKey = ''; savePrefs(); openCaptions('gerar'); st('Essa chave não foi aceita pela Groq. Confira e cole de novo.', 0); return; }
       st('Erro: ' + e.message, 0);
     } finally { btn.disabled = false; }
@@ -2621,18 +2742,34 @@ function encodeWav(pcm, sr) {
   for (let i = 0; i < pcm.length; i++) v.setInt16(44 + i * 2, clamp(pcm[i], -1, 1) * 0x7fff, true);
   return buf;
 }
+// Transcrição: primeiro pelo servidor do Meu Editor (o comprador não precisa de chave nenhuma);
+// só se o servidor ainda não estiver configurado é que usa a chave própria da Groq (se a pessoa tiver colado uma).
+let servidorLegenda = true;
 async function groqTranscribe(pcm, key) {
-  if (!key) throw new Error('falta a chave da Groq');
-  const fd = new FormData();
-  fd.append('file', new Blob([encodeWav(pcm, 16000)], { type: 'audio/wav' }), 'audio.wav');
-  fd.append('model', 'whisper-large-v3'); fd.append('language', 'pt'); fd.append('response_format', 'verbose_json');
-  fd.append('timestamp_granularities[]', 'word'); fd.append('timestamp_granularities[]', 'segment');
-  let r;
-  try { r = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', { method: 'POST', headers: { Authorization: 'Bearer ' + key }, body: fd }); }
-  catch { throw new Error('sem conexão com a internet'); }
-  if (r.status === 429) throw new Error('limite gratuito da Groq atingido; tente de novo em alguns minutos');
-  if (!r.ok) throw new Error('Groq respondeu ' + r.status + ': ' + (await r.text()).slice(0, 160));
-  const j = await r.json();
+  const wav = new Blob([encodeWav(pcm, 16000)], { type: 'audio/wav' });
+  let j = null;
+  if (servidorLegenda) {
+    const fd = new FormData(); fd.append('file', wav, 'audio.wav'); fd.append('language', 'pt');
+    try { j = await (await sbReq('/functions/v1/transcrever', { method: 'POST', body: fd })).json(); }
+    catch (e) {
+      if (e.codigo === 'transcricao_em_configuracao' || e.status === 404) servidorLegenda = false;
+      else if (e.status) throw new Error(e.message);
+      else throw new Error('sem conexão com a internet');
+    }
+  }
+  if (!j) {
+    if (!key) { const e = new Error('precisa_chave'); e.precisaChave = true; throw e; }
+    const fd = new FormData();
+    fd.append('file', wav, 'audio.wav');
+    fd.append('model', 'whisper-large-v3'); fd.append('language', 'pt'); fd.append('response_format', 'verbose_json');
+    fd.append('timestamp_granularities[]', 'word'); fd.append('timestamp_granularities[]', 'segment');
+    let r;
+    try { r = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', { method: 'POST', headers: { Authorization: 'Bearer ' + key }, body: fd }); }
+    catch { throw new Error('sem conexão com a internet'); }
+    if (r.status === 429) throw new Error('limite gratuito da Groq atingido; tente de novo em alguns minutos');
+    if (!r.ok) throw new Error('Groq respondeu ' + r.status + ': ' + (await r.text()).slice(0, 160));
+    j = await r.json();
+  }
   const words = (j.words || []).map((w) => ({ text: String(w.word).replace(NOISE_TAG, '').trim(), start: w.start, end: w.end })).filter((w) => w.text);
   if (!words.length) return chunksToWords((j.segments || []).map((s) => ({ text: s.text, timestamp: [s.start, s.end] })));
   // os tempos vêm por palavra, mas a pontuação e as maiúsculas vêm no texto de cada frase: junta os dois
@@ -2647,6 +2784,9 @@ async function groqTranscribe(pcm, key) {
 async function transcribeAll(st) {
   const ids = [...new Set(S.clips.map((c) => c.mediaId))].filter((id) => media.get(id)?.bufferId);
   if (!ids.length) throw new Error('os vídeos não têm áudio');
+  // nunca apaga legenda editada sem perguntar
+  const editadas = S.captions.filter((c) => ids.includes(c.mediaId)).length;
+  if (editadas && !confirm(`Gerar de novo troca as ${editadas} legendas atuais (e o que você editou nelas). Continuar?`)) throw new Error('cancelado: suas legendas continuam como estavam');
   for (let i = 0; i < ids.length; i++) {
     const id = ids[i], tag = ids.length > 1 ? ` (vídeo ${i + 1}/${ids.length})` : '';
     st('Preparando áudio' + tag + '…', 5 + (90 * i) / ids.length);
@@ -3367,7 +3507,7 @@ ensureFonts().then(draw);
 loadCustomFonts().then(() => { try { draw(); } catch {} });
 try { navigator.storage?.persist?.(); } catch {}
 // versão do app: aparece pequena ao lado do nome, para conferir se atualizou
-const APP_VERSION = 26;
+const APP_VERSION = 27;
 loadTemplateFonts().then(() => { try { draw(); } catch {} });
 { const b = document.querySelector('.brand-ver'); if (b) b.textContent = 'v' + APP_VERSION; }
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
