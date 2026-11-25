@@ -1,0 +1,579 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0c0814">
+<title>Meu Editor — Reels prontos para postar, direto do celular</title>
+<meta name="description" content="Editor de vídeo vertical para Reels e anúncios: edição com IA, legenda automática, 243 animações de texto e efeitos sonoros. Funciona no iPhone, Android e computador.">
+<meta property="og:title" content="Meu Editor — Reels prontos para postar, direto do celular">
+<meta property="og:description" content="Edição com IA, legenda automática, animações de texto e efeitos sonoros num editor que abre no navegador.">
+<meta property="og:image" content="icons/icon-512.png">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Poppins:wght@600;700;800&family=Great+Vibes&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg0:#0c0814; --bg1:#170e2b; --panel:#140e22; --panel2:#1b1230;
+  --ink:#fff; --ink2:rgba(255,255,255,.74); --ink3:rgba(255,255,255,.5);
+  --line:rgba(255,255,255,.1); --glass:rgba(255,255,255,.05);
+  --accent:#9b5cff; --accent2:#c9a6ff; --logo:#ff6d29; --ok:#2bf0b4; --pink:#ff78af;
+  --r:22px; --max:1120px;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg0);color:var(--ink);font:16px/1.6 Inter,"Helvetica Neue",Arial,sans-serif;-webkit-font-smoothing:antialiased;overflow-x:hidden}
+img,svg{display:block}
+a{color:inherit}
+h1,h2,h3{font-family:Poppins,Inter,sans-serif;letter-spacing:-.02em;margin:0}
+.wrap{max-width:var(--max);margin:0 auto;padding:0 20px}
+.script{font-family:"Great Vibes",cursive;font-weight:400;letter-spacing:0;color:var(--accent2)}
+section{padding:96px 0}
+.eyebrow{display:inline-flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--accent2);text-transform:uppercase;letter-spacing:.12em;margin-bottom:16px}
+.eyebrow::before{content:"";width:18px;height:2px;background:var(--logo);border-radius:2px}
+.h2{font-size:clamp(28px,4.2vw,44px);line-height:1.12;max-width:760px}
+.lead{color:var(--ink2);font-size:18px;max-width:640px;margin:16px 0 0}
+.center{text-align:center}.center .h2,.center .lead{margin-left:auto;margin-right:auto}
+
+/* botões */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:10px;min-height:56px;padding:0 30px;border-radius:999px;border:0;cursor:pointer;
+  background:linear-gradient(135deg,#a86bff,#7b3dff);color:#fff;text-decoration:none;font:700 17px Inter,sans-serif;
+  box-shadow:0 10px 30px rgba(139,80,255,.45),inset 0 1px 0 rgba(255,255,255,.25);transition:transform .15s,box-shadow .15s}
+.btn:hover{transform:translateY(-2px);box-shadow:0 14px 38px rgba(139,80,255,.6),inset 0 1px 0 rgba(255,255,255,.25)}
+.btn svg{width:20px;height:20px}
+.btn.sm{min-height:42px;padding:0 20px;font-size:15px}
+.btn.full{width:100%}
+.micro{font-size:13.5px;color:var(--ink3);margin-top:12px;display:flex;flex-wrap:wrap;gap:6px 16px}
+.micro span{display:inline-flex;align-items:center;gap:6px}
+.micro svg{width:15px;height:15px;color:var(--ok)}
+
+/* topo */
+.nav{position:sticky;top:0;z-index:20;background:rgba(12,8,20,.72);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-bottom:1px solid transparent;transition:border-color .2s}
+.nav.scrolled{border-color:var(--line)}
+.nav .wrap{display:flex;align-items:center;justify-content:space-between;height:68px}
+.marca{display:flex;align-items:center;gap:10px;font:700 18px Poppins,sans-serif;text-decoration:none}
+.marca i{width:34px;height:34px;border-radius:10px;background:var(--logo);display:grid;place-items:center}
+.marca i svg{width:19px;height:19px;color:#fff}
+
+/* hero */
+.hero{padding:56px 0 80px;position:relative}
+.hero::before{content:"";position:absolute;inset:-120px 0 auto;height:720px;background:radial-gradient(60% 60% at 70% 30%,rgba(155,92,255,.28),transparent 70%),radial-gradient(40% 40% at 15% 20%,rgba(255,109,41,.13),transparent 70%);pointer-events:none;z-index:-1}
+.hero .wrap{display:grid;grid-template-columns:1.1fr .9fr;gap:48px;align-items:center}
+.hero h1{font-size:clamp(38px,5.6vw,64px);line-height:1.04;font-weight:800}
+.hero h1 .script{font-size:1.18em;line-height:.8;display:inline-block;transform:translateY(.06em)}
+.hero .lead{font-size:19px}
+.hero .ctas{margin-top:30px}
+.pills{display:flex;flex-wrap:wrap;gap:8px;margin-top:28px}
+.pill{font-size:13px;font-weight:600;padding:7px 13px;border-radius:999px;background:var(--glass);border:1px solid var(--line);color:var(--ink2)}
+
+/* celular */
+.phone{width:min(330px,82vw);aspect-ratio:9/19;margin:0 auto;border-radius:46px;padding:11px;background:linear-gradient(160deg,#2b2140,#120c1e);box-shadow:0 40px 90px rgba(0,0,0,.6),0 0 0 1px rgba(255,255,255,.08),0 0 80px rgba(139,80,255,.25);position:relative;transform:rotate(2deg)}
+.screen{height:100%;border-radius:36px;overflow:hidden;background:#0c0814;display:flex;flex-direction:column}
+.s-top{display:flex;align-items:center;justify-content:space-between;padding:14px 14px 8px;font-size:11px;font-weight:700}
+.s-top .b{display:flex;align-items:center;gap:6px}
+.s-top .b i{width:18px;height:18px;border-radius:6px;background:var(--logo);display:grid;place-items:center}
+.s-top .b i svg{width:11px;height:11px;color:#fff}
+.s-top .exp{background:var(--accent);padding:4px 10px;border-radius:999px;font-size:10px}
+.s-video{flex:1;margin:0 12px;border-radius:16px;position:relative;overflow:hidden;
+  background:radial-gradient(circle at 50% 36%,rgba(20,12,34,.85) 0 13%,transparent 13.5%),radial-gradient(55% 32% at 50% 82%,rgba(20,12,34,.85) 0 70%,transparent 71%),radial-gradient(60% 50% at 70% 20%,rgba(255,170,110,.55),transparent 70%),linear-gradient(180deg,#8a5bd6,#4a2d80 55%,#1a1129);animation:zoom 6s ease-in-out infinite}
+@keyframes zoom{0%,100%{background-size:100% 100%}50%{background-size:112% 112%}}
+.s-video::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,transparent 55%,rgba(0,0,0,.45))}
+.cap{position:absolute;left:0;right:0;bottom:22%;text-align:center;z-index:2}
+.cap .g{font:800 25px/1 Poppins,sans-serif;text-transform:uppercase;text-shadow:0 3px 10px rgba(0,0,0,.5)}
+.cap .m{font:400 34px/1 "Great Vibes",cursive;color:#ffd36d;margin-top:-4px;text-shadow:0 3px 10px rgba(0,0,0,.5)}
+.cap .w{display:inline-block;opacity:0;transform:translateY(8px) scale(.9);animation:pop 4.8s infinite}
+@keyframes pop{0%,4%{opacity:0;transform:translateY(8px) scale(.9)}10%,82%{opacity:1;transform:none}92%,100%{opacity:0;transform:translateY(-4px)}}
+.ia-tag{position:absolute;top:12px;left:12px;z-index:2;font-size:10px;font-weight:700;background:rgba(12,8,20,.7);border:1px solid rgba(201,166,255,.4);padding:4px 9px;border-radius:999px;color:var(--accent2);display:flex;align-items:center;gap:5px}
+.ia-tag::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--ok);box-shadow:0 0 8px var(--ok)}
+.s-tl{padding:10px 12px 16px;position:relative}
+.trk{height:16px;border-radius:5px;margin-bottom:5px;display:flex;gap:3px}
+.trk span{border-radius:5px;height:100%}
+.t1 span{background:rgba(88,110,255,.55)}.t2 span{background:linear-gradient(90deg,#8a5bd6,#5d3a99)}.t3 span{background:rgba(43,240,180,.3)}.t4 span{background:rgba(255,120,175,.4)}
+.ph{position:absolute;top:6px;bottom:12px;left:40%;width:2px;background:#fff;border-radius:2px;animation:ph 6s linear infinite}
+@keyframes ph{from{left:14%}to{left:88%}}
+.s-bar{display:flex;justify-content:space-around;padding:4px 10px 14px}
+.s-bar i{width:26px;height:26px;border-radius:9px;background:var(--glass);border:1px solid var(--line)}
+.float{position:absolute;background:rgba(20,14,34,.92);border:1px solid var(--line);border-radius:14px;padding:10px 13px;font-size:12.5px;font-weight:600;box-shadow:0 16px 40px rgba(0,0,0,.5);display:flex;align-items:center;gap:9px;white-space:nowrap}
+.float b{width:26px;height:26px;border-radius:8px;display:grid;place-items:center;flex:none}
+.float b svg{width:15px;height:15px}
+.f1{top:16%;left:-14%;animation:bob 5s ease-in-out infinite}.f1 b{background:rgba(43,240,180,.16);color:var(--ok)}
+.f2{bottom:22%;right:-4%;animation:bob 5s 1.2s ease-in-out infinite}.f2 b{background:rgba(255,109,41,.18);color:var(--logo)}
+@keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
+.phone-wrap{position:relative}
+
+/* faixa números */
+.facts{border-block:1px solid var(--line);background:linear-gradient(90deg,rgba(155,92,255,.06),rgba(255,109,41,.04));padding:30px 0}
+.facts .wrap{display:grid;grid-template-columns:repeat(4,1fr);gap:20px}
+.fact b{display:block;font:800 30px Poppins,sans-serif;background:linear-gradient(90deg,#fff,var(--accent2));-webkit-background-clip:text;background-clip:text;color:transparent}
+.fact span{color:var(--ink3);font-size:14px}
+
+/* dores */
+.dores{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-top:40px}
+.dor{display:flex;gap:14px;padding:20px;border-radius:var(--r);background:var(--glass);border:1px solid var(--line)}
+.dor i{flex:none;width:34px;height:34px;border-radius:50%;background:rgba(255,90,110,.13);color:#ff7a8c;display:grid;place-items:center}
+.dor i svg{width:17px;height:17px}
+.dor p{margin:0;color:var(--ink2)}
+.dor p b{color:var(--ink);display:block;margin-bottom:2px}
+.virada{margin-top:36px;padding:26px 28px;border-radius:var(--r);background:linear-gradient(135deg,rgba(155,92,255,.18),rgba(155,92,255,.04));border:1px solid rgba(155,92,255,.35);font-size:19px;color:var(--ink)}
+.virada b{color:var(--accent2)}
+
+/* passos */
+.passos{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:48px;counter-reset:p}
+.passo{padding:28px;border-radius:var(--r);background:var(--panel);border:1px solid var(--line);position:relative;counter-increment:p}
+.passo::before{content:counter(p);display:grid;place-items:center;width:44px;height:44px;border-radius:14px;background:var(--accent);font:800 19px Poppins,sans-serif;margin-bottom:18px;box-shadow:0 8px 22px rgba(139,80,255,.4)}
+.passo h3{font-size:20px;margin-bottom:8px}
+.passo p{margin:0;color:var(--ink2)}
+
+/* recursos (bento) */
+.bento{display:grid;grid-template-columns:repeat(6,1fr);gap:16px;margin-top:48px}
+.card{grid-column:span 2;padding:26px;border-radius:var(--r);background:var(--panel);border:1px solid var(--line);position:relative;overflow:hidden}
+.card.big{grid-column:span 3}
+.card .ic{width:44px;height:44px;border-radius:13px;display:grid;place-items:center;margin-bottom:16px;background:rgba(155,92,255,.15);color:var(--accent2)}
+.card .ic svg{width:22px;height:22px}
+.card h3{font-size:19px;margin-bottom:6px}
+.card p{margin:0;color:var(--ink2);font-size:15px}
+.card.destaque{background:linear-gradient(150deg,#2a1752,#140e22 70%);border-color:rgba(155,92,255,.4)}
+.card.destaque .ic{background:var(--accent);color:#fff}
+.demo-cap{margin-top:20px;padding:18px;border-radius:16px;background:linear-gradient(180deg,#3a2860,#1d1430);text-align:center}
+.demo-cap .g{font:800 22px/1 Poppins,sans-serif;text-transform:uppercase}
+.demo-cap .m{font:400 30px/1 "Great Vibes",cursive;color:#ffd36d}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:18px}
+.chips span{font-size:12px;font-weight:600;padding:5px 10px;border-radius:999px;background:rgba(255,255,255,.06);border:1px solid var(--line);color:var(--ink2)}
+.anim-row{display:flex;gap:8px;margin-top:18px;font:800 15px Poppins,sans-serif}
+.anim-row span{flex:1;text-align:center;padding:12px 4px;border-radius:12px;background:rgba(255,255,255,.05);border:1px solid var(--line)}
+.a1{animation:a1 2.4s infinite}.a2{animation:a2 2.4s infinite}.a3{animation:a3 2.4s infinite}
+@keyframes a1{0%,100%{transform:scale(1)}50%{transform:scale(1.14);color:var(--accent2)}}
+@keyframes a2{0%,100%{letter-spacing:0}50%{letter-spacing:.18em;color:#ffd36d}}
+@keyframes a3{0%,40%,100%{transform:translateY(0)}20%{transform:translateY(-6px);color:var(--ok)}}
+
+/* para quem */
+.quem{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-top:44px}
+.quem div{padding:24px;border-radius:var(--r);background:var(--glass);border:1px solid var(--line)}
+.quem b{display:block;font:700 17px Poppins,sans-serif;margin-bottom:6px}
+.quem p{margin:0;color:var(--ink2);font-size:14.5px}
+
+/* comparação */
+.comp{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:44px}
+.col{padding:30px;border-radius:var(--r);border:1px solid var(--line);background:var(--glass)}
+.col.sim{background:linear-gradient(150deg,rgba(155,92,255,.2),rgba(155,92,255,.04));border-color:rgba(155,92,255,.45)}
+.col h3{font-size:20px;margin-bottom:16px}
+.col ul{list-style:none;margin:0;padding:0}
+.col li{display:flex;gap:10px;padding:9px 0;color:var(--ink2);border-top:1px solid var(--line)}
+.col li:first-child{border-top:0}
+.col li svg{flex:none;width:20px;height:20px;margin-top:2px}
+.col.nao li svg{color:#ff7a8c}.col.sim li svg{color:var(--ok)}
+.col.sim li{color:var(--ink)}
+
+/* oferta */
+.oferta{position:relative}
+.oferta::before{content:"";position:absolute;inset:0;background:radial-gradient(50% 50% at 50% 50%,rgba(155,92,255,.2),transparent 70%);pointer-events:none;z-index:-1}
+.offer{max-width:560px;margin:44px auto 0;padding:36px;border-radius:30px;background:linear-gradient(170deg,#21143d,#120c1e);border:1px solid rgba(155,92,255,.5);box-shadow:0 30px 80px rgba(0,0,0,.5),0 0 60px rgba(139,80,255,.2)}
+.offer .tag{display:inline-block;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;background:var(--logo);padding:6px 12px;border-radius:999px;margin-bottom:18px}
+.offer h3{font-size:26px}
+.offer ul{list-style:none;padding:0;margin:22px 0}
+.offer li{display:flex;gap:10px;padding:8px 0;color:var(--ink2)}
+.offer li svg{flex:none;width:20px;height:20px;color:var(--ok);margin-top:2px}
+.offer li b{color:var(--ink)}
+.preco{margin:6px 0 22px;text-align:center}
+.preco .de{color:var(--ink3);text-decoration:line-through;font-size:16px}
+.preco .por{font:800 46px/1.1 Poppins,sans-serif}
+.preco .por small{font-size:20px;font-weight:700}
+.preco .obs{color:var(--ink3);font-size:14px}
+.pagto{display:flex;justify-content:center;flex-wrap:wrap;gap:8px 16px;margin-top:16px;font-size:13px;color:var(--ink3)}
+.pagto span{display:inline-flex;align-items:center;gap:6px}
+.pagto svg{width:15px;height:15px}
+.garantia{display:flex;gap:18px;align-items:center;max-width:560px;margin:22px auto 0;padding:22px;border-radius:var(--r);background:var(--glass);border:1px solid var(--line)}
+.selo{flex:none;width:72px;height:72px;border-radius:50%;display:grid;place-items:center;text-align:center;background:radial-gradient(circle,#2bf0b4 0 58%,#1a9f78 59%);color:#06281e;font:800 22px/1 Poppins,sans-serif}
+.selo small{display:block;font-size:10px;font-weight:700;letter-spacing:.05em}
+.garantia p{margin:0;color:var(--ink2);font-size:15px}
+.garantia b{color:var(--ink)}
+
+/* faq */
+.faq{max-width:760px;margin:40px auto 0}
+details{border-bottom:1px solid var(--line)}
+summary{list-style:none;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:16px;padding:22px 0;font:600 17px Inter,sans-serif}
+summary::-webkit-details-marker{display:none}
+summary::after{content:"";flex:none;width:12px;height:12px;border-right:2px solid var(--accent2);border-bottom:2px solid var(--accent2);transform:rotate(45deg) translateY(-3px);transition:transform .2s}
+details[open] summary::after{transform:rotate(225deg) translateY(-3px)}
+details p{margin:0 0 22px;color:var(--ink2)}
+
+/* final */
+.final{padding:110px 0}
+.final .box{text-align:center;padding:64px 28px;border-radius:34px;background:radial-gradient(80% 120% at 50% 0%,#3a1f73,#140e22 70%);border:1px solid rgba(155,92,255,.4)}
+.final h2{font-size:clamp(30px,4.6vw,50px);line-height:1.08}
+.final .lead{margin:16px auto 30px}
+footer{border-top:1px solid var(--line);padding:30px 0 calc(100px + env(safe-area-inset-bottom));color:var(--ink3);font-size:14px}
+footer .wrap{display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px}
+footer a{color:var(--ink2);text-decoration:none}
+
+/* barra fixa no celular */
+.sticky-cta{position:fixed;left:12px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom));z-index:30;display:none;transform:translateY(140%);transition:transform .3s}
+.sticky-cta.show{transform:none}
+.sticky-cta .btn{width:100%;min-height:54px}
+
+/* revelar ao rolar */
+.rv{opacity:0;transform:translateY(24px);transition:opacity .7s,transform .7s}
+.rv.in{opacity:1;transform:none}
+
+@media (max-width:900px){
+  section{padding:72px 0}
+  .hero{padding:28px 0 56px}
+  .hero .wrap{grid-template-columns:1fr;gap:44px}
+  .hero .copy{text-align:center}.hero .lead{margin-left:auto;margin-right:auto}
+  .hero .micro,.pills{justify-content:center}
+  .facts .wrap{grid-template-columns:repeat(2,1fr)}
+  .dores,.passos,.comp{grid-template-columns:1fr}
+  .bento{grid-template-columns:1fr}.card,.card.big{grid-column:auto}
+  .quem{grid-template-columns:1fr 1fr}
+  .phone{width:min(290px,76vw)}
+  .f1{left:0}.f2{right:0}
+  .hero .eyebrow::before{display:none}
+  .sticky-cta{display:block}
+  .nav .btn{display:none}
+}
+@media (max-width:520px){
+  .quem{grid-template-columns:1fr}
+  .offer{padding:26px 20px}
+  .garantia{flex-direction:column;text-align:center}
+  .float{font-size:11.5px;padding:8px 10px}
+}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}.rv{opacity:1;transform:none}.cap .w{opacity:1;transform:none}}
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+  <symbol id="i-cut" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4 8.12 15.88M14.47 14.48 20 20M8.12 8.12 12 12"/></symbol>
+  <symbol id="i-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></symbol>
+  <symbol id="i-spark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></symbol>
+  <symbol id="i-cc" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="3"/><path d="M10 10.5a2 2 0 1 0 0 3M17 10.5a2 2 0 1 0 0 3"/></symbol>
+  <symbol id="i-type" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7V4h16v3M9 20h6M12 4v16"/></symbol>
+  <symbol id="i-sound" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H2v6h4l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M19 5a10 10 0 0 1 0 14"/></symbol>
+  <symbol id="i-layers" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 2 10 5-10 5L2 7z"/><path d="m2 17 10 5 10-5M2 12l10 5 10-5"/></symbol>
+  <symbol id="i-zoom" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3M11 8v6M8 11h6"/></symbol>
+  <symbol id="i-phone" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="2" width="12" height="20" rx="3"/><path d="M11 18h2"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+  <symbol id="i-brush" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="13.5" cy="6.5" r="1.5"/><circle cx="17.5" cy="10.5" r="1.5"/><circle cx="8.5" cy="7.5" r="1.5"/><circle cx="6.5" cy="12.5" r="1.5"/><path d="M12 2a10 10 0 1 0 0 20c1.1 0 2-.9 2-2 0-.5-.2-1-.5-1.3-.3-.4-.5-.8-.5-1.3 0-1.1.9-2 2-2h2.4A5.6 5.6 0 0 0 22 9.8C22 5.5 17.5 2 12 2z"/></symbol>
+  <symbol id="i-down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+  <symbol id="i-pix" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="m12 2 4.5 4.5-4.5 4.5-4.5-4.5zM12 13l4.5 4.5L12 22l-4.5-4.5zM2 12l4.5-4.5L11 12l-4.5 4.5zM13 12l4.5-4.5L22 12l-4.5 4.5z"/></symbol>
+  <symbol id="i-card" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></symbol>
+</svg>
+
+<header class="nav" id="nav">
+  <div class="wrap">
+    <a class="marca" href="#topo" aria-label="Meu Editor"><i><svg><use href="#i-cut"/></svg></i>Meu Editor</a>
+    <a class="btn sm" data-checkout href="#oferta">Quero o Meu Editor</a>
+  </div>
+</header>
+
+<main id="topo">
+
+<!-- HERO -->
+<section class="hero">
+  <div class="wrap">
+    <div class="copy">
+      <div class="eyebrow">Editor de vídeo para Reels e anúncios</div>
+      <h1>Seu Reels editado, legendado e <span class="script">pronto</span> para postar.</h1>
+      <p class="lead">Grave, coloque no Meu Editor e deixe a IA fazer a primeira edição: cortes, legenda com estilo, animações de texto e efeitos sonoros. Você só ajusta o que quiser e exporta. Direto do celular.</p>
+      <div class="ctas">
+        <a class="btn" data-checkout href="#oferta">Quero editar meus vídeos <svg><use href="#i-arrow"/></svg></a>
+        <div class="micro">
+          <span><svg><use href="#i-check"/></svg>iPhone, Android e computador</span>
+          <span><svg><use href="#i-check"/></svg>Nada para baixar da loja</span>
+          <span><svg><use href="#i-check"/></svg>Garantia de 7 dias</span>
+        </div>
+      </div>
+      <div class="pills">
+        <span class="pill">Editar com IA</span><span class="pill">Legenda automática</span><span class="pill">243 animações de texto</span><span class="pill">Efeitos sonoros</span><span class="pill">Exporta em MP4</span>
+      </div>
+    </div>
+
+    <div class="phone-wrap" aria-hidden="true">
+      <div class="phone">
+        <div class="screen">
+          <div class="s-top"><span class="b"><i><svg><use href="#i-cut"/></svg></i>Meu Editor</span><span class="exp">Exportar</span></div>
+          <div class="s-video">
+            <span class="ia-tag">Editado com IA</span>
+            <div class="cap">
+              <div class="g"><span class="w" style="animation-delay:.1s">isso</span> <span class="w" style="animation-delay:.3s">aqui</span></div>
+              <div class="m"><span class="w" style="animation-delay:.6s">mudou tudo</span></div>
+            </div>
+          </div>
+          <div class="s-tl">
+            <div class="trk t1"><span style="width:22%;margin-left:30%"></span><span style="width:18%;margin-left:12%"></span></div>
+            <div class="trk t2"><span style="width:28%"></span><span style="width:20%"></span><span style="width:32%"></span><span style="width:16%"></span></div>
+            <div class="trk t3"><span style="width:100%"></span></div>
+            <div class="trk t4"><span style="width:14%"></span><span style="width:18%"></span><span style="width:12%"></span><span style="width:20%"></span><span style="width:16%"></span></div>
+            <div class="ph"></div>
+          </div>
+          <div class="s-bar"><i></i><i></i><i></i><i></i><i></i></div>
+        </div>
+      </div>
+      <div class="float f1"><b><svg><use href="#i-cc"/></svg></b>Legenda gerada</div>
+      <div class="float f2"><b><svg><use href="#i-cut"/></svg></b>Silêncios cortados</div>
+    </div>
+  </div>
+</section>
+
+<!-- NÚMEROS -->
+<div class="facts">
+  <div class="wrap">
+    <div class="fact"><b>243</b><span>animações de texto</span></div>
+    <div class="fact"><b>1 toque</b><span>para legendar o vídeo todo</span></div>
+    <div class="fact"><b>9:16</b><span>pensado para Reels, TikTok e Shorts</span></div>
+    <div class="fact"><b>0 apps</b><span>para instalar da loja</span></div>
+  </div>
+</div>
+
+<!-- DOR -->
+<section>
+  <div class="wrap">
+    <div class="eyebrow">O problema</div>
+    <h2 class="h2 rv">Editar um Reels não devia levar a tarde inteira.</h2>
+    <p class="lead rv">Se você grava conteúdo toda semana, provavelmente já passou por isso:</p>
+    <div class="dores">
+      <div class="dor rv"><i><svg><use href="#i-x"/></svg></i><p><b>Horas cortando pausas e erros</b>Respiros, “éé”, frase repetida… e o vídeo de 1 minuto vira 1 hora de edição.</p></div>
+      <div class="dor rv"><i><svg><use href="#i-x"/></svg></i><p><b>Legenda digitada palavra por palavra</b>E depois ainda tem que deixar bonita, no tamanho certo, sem cobrir o rosto.</p></div>
+      <div class="dor rv"><i><svg><use href="#i-x"/></svg></i><p><b>Vídeo com cara de amador</b>Sem zoom, sem texto animado, sem som. Ninguém para de rolar o feed.</p></div>
+      <div class="dor rv"><i><svg><use href="#i-x"/></svg></i><p><b>Programas pesados e difíceis</b>Ou você aprende um software de profissional, ou paga alguém para editar cada vídeo.</p></div>
+    </div>
+    <div class="virada rv">O <b>Meu Editor</b> foi feito para quem precisa postar com frequência e com qualidade, <b>sem virar editor de vídeo</b>.</div>
+  </div>
+</section>
+
+<!-- COMO FUNCIONA -->
+<section id="como">
+  <div class="wrap center">
+    <div class="eyebrow">Como funciona</div>
+    <h2 class="h2 rv">Do vídeo bruto ao Reels pronto em 3 passos.</h2>
+    <div class="passos" style="text-align:left">
+      <div class="passo rv"><h3>Adicione seus vídeos</h3><p>Escolha um ou mais vídeos da galeria do celular ou do computador. Eles ficam no seu aparelho.</p></div>
+      <div class="passo rv"><h3>Toque em Editar com IA</h3><p>Diga se é um Reels ou um anúncio e qual o objetivo. A IA monta a edição: cortes, legenda, textos, zoom e sons.</p></div>
+      <div class="passo rv"><h3>Ajuste e exporte</h3><p>Mude o que quiser com o dedo, na linha do tempo. Depois é só exportar em MP4 e postar.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- RECURSOS -->
+<section id="recursos">
+  <div class="wrap">
+    <div class="eyebrow">Recursos</div>
+    <h2 class="h2 rv">Tudo o que um Reels que prende a atenção precisa.</h2>
+    <p class="lead rv">Ferramentas de editor profissional, num app simples o bastante para usar no celular.</p>
+    <div class="bento">
+      <div class="card big destaque rv">
+        <div class="ic"><svg><use href="#i-spark"/></svg></div>
+        <h3>Editar com IA</h3>
+        <p>Escolha entre Reels ou Anúncio, marque o objetivo (venda, crescimento, autoridade, leads…) e a IA entrega a primeira versão editada, usando as cores e fontes da sua marca.</p>
+        <div class="chips"><span>Reels</span><span>Anúncio</span><span>Kit da marca</span><span>Primeira edição pronta</span></div>
+      </div>
+      <div class="card big rv">
+        <div class="ic"><svg><use href="#i-cc"/></svg></div>
+        <h3>Legenda automática com estilo</h3>
+        <p>Um toque e o vídeo inteiro é legendado. Use modelos prontos que combinam fonte grande com manuscrita, do jeito que está em alta.</p>
+        <div class="demo-cap" aria-hidden="true"><div class="g">o segredo é</div><div class="m">consistência</div></div>
+      </div>
+      <div class="card rv">
+        <div class="ic"><svg><use href="#i-type"/></svg></div>
+        <h3>243 animações de texto</h3>
+        <p>Textos que entram, pulam, brilham e saem com ritmo. Para títulos, ganchos e chamadas.</p>
+        <div class="anim-row" aria-hidden="true"><span class="a1">POP</span><span class="a2">ABRE</span><span class="a3">PULA</span></div>
+      </div>
+      <div class="card rv">
+        <div class="ic"><svg><use href="#i-sound"/></svg></div>
+        <h3>Efeitos sonoros e transições</h3>
+        <p>Biblioteca de sons (whoosh, pop, clique…) e transições com som, prontos para arrastar.</p>
+      </div>
+      <div class="card rv">
+        <div class="ic"><svg><use href="#i-zoom"/></svg></div>
+        <h3>Zoom e keyframes</h3>
+        <p>Aproxime no ponto alto da fala e anime posição, tamanho e opacidade de qualquer camada.</p>
+      </div>
+      <div class="card rv">
+        <div class="ic"><svg><use href="#i-layers"/></svg></div>
+        <h3>Camadas e cortes</h3>
+        <p>Divida, corte, mude a velocidade do clipe, sobreponha vídeos, imagens e textos livres.</p>
+      </div>
+      <div class="card rv">
+        <div class="ic"><svg><use href="#i-brush"/></svg></div>
+        <h3>Suas fontes e cores</h3>
+        <p>Adicione qualquer fonte (arquivo ou Google Fonts) e salve o kit da sua marca.</p>
+      </div>
+      <div class="card rv">
+        <div class="ic"><svg><use href="#i-folder"/></svg></div>
+        <h3>Galeria de projetos</h3>
+        <p>Salve seus projetos e reabra depois para ajustar ou fazer uma nova versão.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- PARA QUEM -->
+<section>
+  <div class="wrap center">
+    <div class="eyebrow">Para quem é</div>
+    <h2 class="h2 rv">Feito para quem vive de conteúdo.</h2>
+    <div class="quem" style="text-align:left">
+      <div class="rv"><b>Criadores de conteúdo</b><p>Que postam toda semana e querem manter a frequência sem passar horas editando.</p></div>
+      <div class="rv"><b>Profissionais e especialistas</b><p>Médicos, dentistas, esteticistas, advogados, coaches: quem grava fala e quer um vídeo profissional.</p></div>
+      <div class="rv"><b>Social medias e agências</b><p>Que editam vídeos de vários clientes e precisam de agilidade e padrão de marca.</p></div>
+      <div class="rv"><b>Empreendedores</b><p>Que querem criar os próprios anúncios e Reels de venda, sem depender de ninguém.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- COMPARAÇÃO -->
+<section>
+  <div class="wrap">
+    <div class="eyebrow">A diferença</div>
+    <h2 class="h2 rv">Seu próximo vídeo, de dois jeitos.</h2>
+    <div class="comp">
+      <div class="col nao rv">
+        <h3>Editando do jeito de sempre</h3>
+        <ul>
+          <li><svg><use href="#i-x"/></svg>Corta pausa por pausa na mão</li>
+          <li><svg><use href="#i-x"/></svg>Digita e posiciona cada legenda</li>
+          <li><svg><use href="#i-x"/></svg>Procura som e animação em outros apps</li>
+          <li><svg><use href="#i-x"/></svg>Precisa do computador ou de um editor</li>
+          <li><svg><use href="#i-x"/></svg>Posta menos do que gostaria</li>
+        </ul>
+      </div>
+      <div class="col sim rv">
+        <h3>Com o Meu Editor</h3>
+        <ul>
+          <li><svg><use href="#i-check"/></svg>A IA faz a primeira edição por você</li>
+          <li><svg><use href="#i-check"/></svg>Legenda com estilo em um toque</li>
+          <li><svg><use href="#i-check"/></svg>Sons, transições e 243 animações no mesmo lugar</li>
+          <li><svg><use href="#i-check"/></svg>Edita no celular, onde você grava</li>
+          <li><svg><use href="#i-check"/></svg>Mantém a frequência de postagem</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- OFERTA -->
+<section class="oferta" id="oferta">
+  <div class="wrap center">
+    <div class="eyebrow">Acesso</div>
+    <h2 class="h2 rv">Comece a editar hoje.</h2>
+    <p class="lead rv">Você recebe o acesso no e-mail logo depois da compra e já pode abrir no celular.</p>
+    <div class="offer rv" style="text-align:left">
+      <span class="tag">Meu Editor</span>
+      <h3>Acesso ao Meu Editor</h3>
+      <ul>
+        <li><svg><use href="#i-check"/></svg><span><b>Editar com IA</b> para Reels e anúncios</span></li>
+        <li><svg><use href="#i-check"/></svg><span><b>Legenda automática</b> com modelos de texto prontos</span></li>
+        <li><svg><use href="#i-check"/></svg><span><b>243 animações de texto</b> e suas próprias fontes</span></li>
+        <li><svg><use href="#i-check"/></svg><span><b>Biblioteca de efeitos sonoros</b> e transições</span></li>
+        <li><svg><use href="#i-check"/></svg><span><b>Zoom, keyframes, camadas</b> e velocidade do clipe</span></li>
+        <li><svg><use href="#i-check"/></svg><span><b>Galeria de projetos</b> salvos na sua conta</span></li>
+        <li><svg><use href="#i-check"/></svg><span>Funciona no <b>iPhone, Android e computador</b></span></li>
+        <li><svg><use href="#i-check"/></svg><span><b>Atualizações</b> com recursos novos</span></li>
+      </ul>
+      <div class="preco" id="preco"></div>
+      <a class="btn full" data-checkout href="#oferta">Quero meu acesso agora <svg><use href="#i-arrow"/></svg></a>
+      <div class="pagto">
+        <span><svg><use href="#i-lock"/></svg>Pagamento seguro</span>
+        <span><svg><use href="#i-pix"/></svg>Pix</span>
+        <span><svg><use href="#i-card"/></svg>Cartão de crédito</span>
+      </div>
+    </div>
+    <div class="garantia rv" style="text-align:left">
+      <div class="selo">7<small>DIAS</small></div>
+      <p><b>Garantia incondicional de 7 dias.</b> Teste o Meu Editor nos seus vídeos. Se não for para você, peça o reembolso dentro de 7 dias e devolvemos 100% do valor, sem perguntas.</p>
+    </div>
+  </div>
+</section>
+
+<!-- FAQ -->
+<section id="faq">
+  <div class="wrap">
+    <div class="center"><div class="eyebrow">Dúvidas</div><h2 class="h2">Perguntas frequentes</h2></div>
+    <div class="faq">
+      <details><summary>Funciona no iPhone?</summary><p>Sim. O Meu Editor abre no Safari e você adiciona à tela de início com dois toques. Ele fica com ícone e abre em tela cheia, como um aplicativo. Também funciona no Android e no computador.</p></details>
+      <details><summary>Preciso baixar algum aplicativo da loja?</summary><p>Não. O Meu Editor funciona direto no navegador. Não ocupa espaço como um app pesado e se atualiza sozinho quando sai recurso novo.</p></details>
+      <details><summary>Preciso saber editar vídeo?</summary><p>Não. O botão Editar com IA faz a primeira edição para você. Depois, os ajustes são feitos com o dedo, na linha do tempo, de forma simples.</p></details>
+      <details><summary>Como recebo o acesso?</summary><p>Logo após a compra aprovada você recebe um e-mail com o link para criar sua senha. É só entrar com seu e-mail e senha e começar a editar.</p></details>
+      <details><summary>Meus vídeos ficam expostos?</summary><p>Não. Os vídeos que você adiciona ficam no seu aparelho, e os projetos salvos ficam na sua conta, que só você acessa com e-mail e senha.</p></details>
+      <details><summary>Em que formato o vídeo é exportado?</summary><p>Em MP4 vertical (9:16), pronto para Instagram, TikTok, YouTube Shorts e anúncios.</p></details>
+      <details><summary>E se eu não gostar?</summary><p>Você tem 7 dias de garantia. Se não gostar, pede o reembolso e recebe 100% do valor de volta.</p></details>
+    </div>
+  </div>
+</section>
+
+<!-- CTA FINAL -->
+<section class="final">
+  <div class="wrap">
+    <div class="box rv">
+      <h2>Seu próximo Reels pode ficar <span class="script">pronto</span> hoje.</h2>
+      <p class="lead">Pare de adiar o conteúdo por causa da edição. Grave, coloque no Meu Editor e poste.</p>
+      <a class="btn" data-checkout href="#oferta">Quero o Meu Editor <svg><use href="#i-arrow"/></svg></a>
+      <div class="micro" style="justify-content:center"><span><svg><use href="#i-check"/></svg>Acesso imediato</span><span><svg><use href="#i-check"/></svg>Garantia de 7 dias</span></div>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>© <span id="ano"></span> Meu Editor. Todos os direitos reservados.</span>
+    <span><a href="./">Já sou cliente: entrar</a></span>
+  </div>
+</footer>
+
+<div class="sticky-cta" id="sticky"><a class="btn" data-checkout href="#oferta">Quero o Meu Editor <svg><use href="#i-arrow"/></svg></a></div>
+
+<script>
+/* ===== CONFIGURAÇÃO DA OFERTA =====
+   CHECKOUT: cole aqui o link do checkout (Kiwify). Enquanto estiver vazio, os botões levam para a seção de oferta.
+   PRECO / PRECO_DE / PARCELAS: textos do preço. Deixe PRECO vazio para esconder o bloco de preço. */
+const OFERTA = {
+  CHECKOUT: '',
+  PRECO: '',          // ex.: '97'
+  PRECO_DE: '',       // ex.: '197' (preço riscado, opcional)
+  PARCELAS: ''        // ex.: 'ou 12x de R$ 9,74'
+};
+
+(function () {
+  // botões de compra: levam ao checkout (mantendo UTMs da página) ou à oferta
+  const utm = location.search.replace(/^\?/, '');
+  const link = OFERTA.CHECKOUT ? OFERTA.CHECKOUT + (utm ? (OFERTA.CHECKOUT.includes('?') ? '&' : '?') + utm : '') : '';
+  document.querySelectorAll('[data-checkout]').forEach((a) => {
+    if (link) { a.href = link; a.rel = 'noopener'; }
+  });
+
+  // preço
+  const p = document.getElementById('preco');
+  if (OFERTA.PRECO) {
+    p.innerHTML = (OFERTA.PRECO_DE ? `<div class="de">de R$ ${OFERTA.PRECO_DE}</div>` : '') +
+      `<div class="por"><small>R$</small> ${OFERTA.PRECO}</div>` +
+      (OFERTA.PARCELAS ? `<div class="obs">${OFERTA.PARCELAS}</div>` : '');
+  } else p.remove();
+
+  document.getElementById('ano').textContent = new Date().getFullYear();
+
+  // topo com borda ao rolar + barra fixa no celular (some quando a oferta está na tela)
+  const nav = document.getElementById('nav'), sticky = document.getElementById('sticky'), oferta = document.getElementById('oferta');
+  let ofertaVisivel = false;
+  new IntersectionObserver(([e]) => { ofertaVisivel = e.isIntersecting; onScroll(); }, { threshold: .15 }).observe(oferta);
+  function onScroll() {
+    nav.classList.toggle('scrolled', scrollY > 8);
+    sticky.classList.toggle('show', scrollY > 600 && !ofertaVisivel);
+  }
+  addEventListener('scroll', onScroll, { passive: true }); onScroll();
+
+  // revelar ao rolar
+  const io = new IntersectionObserver((es) => es.forEach((e) => { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); } }), { rootMargin: '0px 0px -8% 0px' });
+  document.querySelectorAll('.rv').forEach((el) => io.observe(el));
+})();
+</script>
+</body>
+</html>
