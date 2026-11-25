@@ -109,7 +109,7 @@ export function criarAgente(C) {
     zoomNaFrase(tempo, { forca = 1.2, dur = 0.35, ate = null } = {}) {
       let t = 0;
       for (const c of S.clips) {
-        const len = c.out - c.in;
+        const len = (c.out - c.in) / (c.speed || 1);
         if (tempo >= t && tempo < t + len - 0.2) {
           S.zooms = S.zooms.filter((z) => z.clipId !== c.id);   // o take começa sem zoom (ponto zero)
           const off = +(tempo - t).toFixed(2);
@@ -124,7 +124,7 @@ export function criarAgente(C) {
     // Tempo na timeline final de um instante do bruto (mediaId + segundos do arquivo). null se esse trecho foi cortado.
     tempoNaTimeline(mediaId, s) {
       let t = 0;
-      for (const c of S.clips) { if (c.mediaId === mediaId && s >= c.in && s < c.out) return t + (s - c.in); t += c.out - c.in; }
+      for (const c of S.clips) { if (c.mediaId === mediaId && s >= c.in && s < c.out) return t + (s - c.in) / (c.speed || 1); t += (c.out - c.in) / (c.speed || 1); }
       return null;
     },
     // 6) Estilo da legenda na identidade do cliente. Ex.: {tpl:'editorial', font:'Poppins', weight:700, color:'#EEF2F8', size:60, y:0.75, upper:false}

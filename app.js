@@ -2,10 +2,10 @@
 // Os vídeos ficam no aparelho. Vão para a nuvem só: a galeria de projetos (dados leves), a transcrição via Groq
 // (se usada) e, no "Editar com IA", a TRANSCRIÇÃO em texto (nunca o vídeo).
 
-import { TEMPLATES, LAYOUTS, tplById, layoutById, parseMarked, stripMarks, drawCapTpl, drawLayout, drawLayoutFx, countUnits, drawPreview, loadTemplateFonts } from './estilos.js?v=25';
-import { ANIM_GROUPS, presetsOf, presetByName, animLabel, SPLIT_LABEL, layerPhase, hasAnim, splitSlices, sliceState, applyState, makePlan, emphasisTime } from './animacoes.js?v=25';
+import { TEMPLATES, LAYOUTS, tplById, layoutById, parseMarked, stripMarks, drawCapTpl, drawLayout, drawLayoutFx, countUnits, drawPreview, loadTemplateFonts } from './estilos.js?v=26';
+import { ANIM_GROUPS, presetsOf, presetByName, animLabel, SPLIT_LABEL, layerPhase, hasAnim, splitSlices, sliceState, applyState, makePlan, emphasisTime } from './animacoes.js?v=26';
 import * as conta from './conta.js?v=25b';
-import { criarAgente } from './agente.js?v=25';
+import { criarAgente } from './agente.js?v=26';
 const seedOf = (id) => { let h = 7; for (const c of String(id)) h = (h * 31 + c.charCodeAt(0)) >>> 0; return h % 100000; };
 
 const $ = (s, el = document) => el.querySelector(s);
@@ -56,6 +56,9 @@ const ICONS = {
   textbox: '<rect x="3" y="4" width="18" height="16" rx="3"/><path d="M8 9h8M12 9v7"/>',
   sparkle: '<path d="M12 3l1.8 4.9L19 9.7l-5.2 1.8L12 16.4l-1.8-4.9L5 9.7l5.2-1.8z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/>',
   gear: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
+  gauge: '<path d="M12 14 16 9"/><path d="M3.3 17a10 10 0 1 1 17.4 0"/><circle cx="12" cy="14" r="1.6" fill="currentColor"/>',
+  font: '<path d="M4 20 9.5 5h1L16 20M6.2 14h7.6"/><path d="M19 8v8M15 12h8"/>',
+  upload: '<path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/>',
   unlink: '<path d="m18.84 12.25 1.72-1.71a5 5 0 0 0-7.07-7.07l-1.72 1.71M5.17 11.75l-1.71 1.71a5 5 0 0 0 7.07 7.07l1.71-1.71M8 2v3M2 8h3M16 22v-3M22 16h-3"/>',
 };
 const ic = (n) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICONS[n]}</svg>`;
@@ -121,11 +124,16 @@ function redo() { if (!hist.future.length) return; hist.past.push(snap()); resto
 function updUndo() { $('#btn-undo').disabled = !hist.past.length; $('#btn-redo').disabled = !hist.future.length; }
 
 // ---------- Linha do tempo: cálculos ----------
+// velocidade do clipe: 2 = duas vezes mais rápido (o clipe ocupa metade do tempo na linha do tempo)
+const spd = (c) => c.speed || 1;
+const clipLen = (c) => (c.out - c.in) / spd(c);
+const srcAt = (r, t) => r.clip.in + (t - r.start) * spd(r.clip);   // tempo na linha do tempo -> tempo no arquivo
+const tlAt = (r, s) => r.start + (s - r.clip.in) / spd(r.clip);    // tempo no arquivo -> tempo na linha do tempo
 function layout() {
   let t = 0;
-  return S.clips.map((clip, i) => { const d = clip.out - clip.in; const r = { clip, i, start: t, end: t + d }; t += d; return r; });
+  return S.clips.map((clip, i) => { const d = clipLen(clip); const r = { clip, i, start: t, end: t + d }; t += d; return r; });
 }
-const total = () => S.clips.reduce((a, c) => a + (c.out - c.in), 0);
+const total = () => S.clips.reduce((a, c) => a + clipLen(c), 0);
 function clipAt(t, L = layout()) {
   if (!L.length) return null;
   for (const r of L) if (t >= r.start && t < r.end) return r;
@@ -138,14 +146,14 @@ function capSpans(L = layout()) {
     for (const r of L) {
       if (r.clip.mediaId !== c.mediaId) continue;
       const a = Math.max(c.start, r.clip.in), b = Math.min(c.end, r.clip.out);
-      if (b - a > 0.02) out.push({ cap: c, a, start: r.start + a - r.clip.in, end: r.start + b - r.clip.in });
+      if (b - a > 0.02) out.push({ cap: c, a, k: spd(r.clip), start: tlAt(r, a), end: tlAt(r, b) });
     }
   }
   return out.sort((x, y) => x.start - y.start);
 }
 function captionAt(t, r) {
   if (!r) return null;
-  const s = r.clip.in + (t - r.start);
+  const s = srcAt(r, t);
   return S.captions.find((c) => c.mediaId === r.clip.mediaId && s >= c.start && s < c.end);
 }
 function audioLanes() {
@@ -313,13 +321,14 @@ function scheduleAudio(fromT, dest, ctx = ac()) {
   const mp = masterFadePoints(L); // fades dos clipes com "som junto"
   if (mp.length) envelope(master.gain, mp, fromT, now);
 
-  const add = (buffer, gainVal, tlStart, srcOffset, dur, pts) => {
+  const add = (buffer, gainVal, tlStart, srcOffset, dur, pts, rate = 1) => {
     if (dur <= 0.005) return;
     const src = ctx.createBufferSource(); src.buffer = buffer;
+    if (rate !== 1) src.playbackRate.value = rate;
     const g = ctx.createGain(); g.gain.value = gainVal;
     if (pts) envelope(g.gain, pts, fromT, now);
     src.connect(g).connect(master);
-    src.start(now + Math.max(0, tlStart - fromT), Math.max(0, srcOffset), dur);
+    src.start(now + Math.max(0, tlStart - fromT), Math.max(0, srcOffset), dur * rate);
     nodes.push(src);
   };
   // áudio original vinculado aos clipes
@@ -330,9 +339,16 @@ function scheduleAudio(fromT, dest, ctx = ac()) {
     if (!b) continue;
     const off = Math.max(0, fromT - r.start), len = r.end - r.start, v = S.origVolume * (c.volume ?? 1);
     const fi = Math.min(c.afi || 0, len / 2), fo = Math.min(c.afo || 0, len / 2);
-    const pts = hasKf(c, 'vol') ? gainPts(r.start, r.end, (x) => S.origVolume * kfVal(c, 'vol', c.in + x - r.start, c.volume ?? 1) * fadeMul(x - r.start, len, fi, fo))
+    const pts = hasKf(c, 'vol') ? gainPts(r.start, r.end, (x) => S.origVolume * kfVal(c, 'vol', srcAt(r, x), c.volume ?? 1) * fadeMul(x - r.start, len, fi, fo))
       : (fi || fo) ? [[r.start, fi ? 0 : v], [r.start + fi, v], [r.end - fo, v], [r.end, fo ? 0 : v]] : null;
-    add(b.buffer, v, r.start + off, c.in + off, len - off, pts);
+    const k = spd(c);
+    if (k === 1) add(b.buffer, v, r.start + off, c.in + off, len - off, pts);
+    else {
+      // com velocidade: usa o áudio esticado sem mudar o tom da voz (se ainda não ficou pronto, toca acelerado)
+      const st = stretchCache.get(stretchKey(m.bufferId, c));
+      if (st) add(st, v, r.start + off, off, len - off, pts);
+      else add(b.buffer, v, r.start + off, c.in + off * k, len - off, pts, k);
+    }
   }
   // efeitos sonoros das transições (podem começar antes do corte)
   const sfx = (snd, gain, cutT) => {
@@ -390,10 +406,11 @@ function assign(v, clip, s) {
 function syncVideos(t) {
   const L = layout(); if (!L.length) return null;
   const r = clipAt(t, L), idx = r.i;
-  const s = clamp(r.clip.in + (t - r.start), r.clip.in, Math.max(r.clip.in, r.clip.out - 0.02));
+  const s = clamp(srcAt(r, t), r.clip.in, Math.max(r.clip.in, r.clip.out - 0.02));
   let v = pool.find((x) => x._clipId === r.clip.id);
   if (!v) { v = pool.find((x) => x !== activeV) || pool[0]; assign(v, r.clip, s); }
   if (v !== activeV) { if (activeV) activeV.pause(); activeV = v; }
+  const pr = spd(r.clip) * (E.rate || 1); if (v.playbackRate !== pr) v.playbackRate = pr;
   if (E.playing && !E.stalled) {
     if (v.paused) v.play().catch(() => {});
     if (!v.seeking && Math.abs(v.currentTime - s) > 0.25) v.currentTime = s;
@@ -421,7 +438,7 @@ function renderFrame(ctx, W, H, t, r, v, pre = false) {
   const vw = v.videoWidth, vh = v.videoHeight;
   if (vw && vh) {
     // keyframes do clipe: posição, escala, rotação e opacidade (somados ao zoom)
-    const c = r.clip, s = c.in + (t - r.start);
+    const c = r.clip, s = srcAt(r, t);
     const sc = kfVal(c, 'scale', s, c.sc ?? 1), cx = kfVal(c, 'x', s, c.tx ?? 0.5) * W, cy = kfVal(c, 'y', s, c.ty ?? 0.5) * H;
     const rot = kfVal(c, 'rot', s, c.rot ?? 0), op = clamp(kfVal(c, 'op', s, c.op ?? 1), 0, 1), col = hasColor(c.color);
     const k = Math.min(W / vw, H / vh) * zoomAt(t, r) * sc, w = vw * k, h = vh * k;
@@ -440,7 +457,7 @@ function renderFrame(ctx, W, H, t, r, v, pre = false) {
   // camadas de ajuste: acima do vídeo e das camadas, abaixo da legenda
   for (const L of S.layers) if (L.kind === 'adjust' && t >= L.start && t < L.start + L.out - L.in && hasColor(L.color)) colorPass(ctx, W, H, ctx.canvas, 0, 0, W, H, L.color);
   const cap = captionAt(t, r);
-  if (cap && cap.text.trim()) drawCaption(ctx, W, H, cap.text, cap, r.clip.in + (t - r.start));
+  if (cap && cap.text.trim()) drawCaption(ctx, W, H, cap.text, cap, srcAt(r, t));
   overlays(ctx, W, H, t);
 }
 function overlays(ctx, W, H, t) {
@@ -499,8 +516,8 @@ function capTimes(cap, n) {
 }
 // Modelo de legenda com as cores escolhidas por cima das do modelo (Cor do texto / Cor do destaque).
 function capTplOf(c) {
-  const t = tplById(c.tpl); if (!t || (!c.tcolor && !c.tacc)) return t;
-  return { ...t, base: { ...t.base, color: c.tcolor || t.base.color, active: c.tacc || t.base.active },
+  const t = tplById(c.tpl); if (!t || (!c.tcolor && !c.tacc && !c.tfont)) return t;
+  return { ...t, base: { ...t.base, color: c.tcolor || t.base.color, active: c.tacc || t.base.active, ...(c.tfont ? { font: fontCss(c.tfont) } : {}) },
     paper: c.tcolor || t.paper, accent: c.tacc || t.accent };
 }
 function drawCaption(ctx, W, H, text, cap, s) {
@@ -557,6 +574,7 @@ async function play() {
   if (!S.clips.length || E.playing) return;
   ac(); await actx.resume();
   if (S.t >= total() - 0.05) S.t = 0;
+  if (speedPending()) { toast('Preparando o áudio na nova velocidade…'); await prepareSpeeds(); if (E.playing) return; }
   E.sched = scheduleAudio(S.t, actx.destination);
   E.playing = true; E.stalled = false; updPlay(); loop();
 }
@@ -633,9 +651,9 @@ function renderTimeline() {
     el.className = 'clip' + (isSel ? ' sel' : '');
     el.style.left = (h + r.start * pps) + 'px'; el.style.width = Math.max(3, (r.end - r.start) * pps - 2) + 'px';
     const m = media.get(r.clip.mediaId); if (m?.thumb) el.style.backgroundImage = `url(${m.thumb})`;
-    el.innerHTML = `<span class="dur">${(r.end - r.start).toFixed(1)}s</span>` +
+    el.innerHTML = `<span class="dur">${(r.end - r.start).toFixed(1)}s${spd(r.clip) !== 1 ? ` · ${fmtSpd(spd(r.clip))}` : ''}</span>` +
       (r.clip.vfi ? `<i class="vf in" style="width:${r.clip.vfi * pps}px"></i>` : '') + (r.clip.vfo ? `<i class="vf out" style="width:${r.clip.vfo * pps}px"></i>` : '') +
-      kfMarks(r.clip, r.clip.in, r.clip.out, pps, KF_VIS);
+      kfMarks(r.clip, r.clip.in, r.clip.out, pps / spd(r.clip), KF_VIS);
     el.onclick = (e) => { e.stopPropagation(); if (el._dragged) return; select('clip', r.clip.id); };
     if (isSel) addHandles(el);
     bindDrag(el, 'clip', r.clip.id, clipOps(el, r, h));
@@ -670,7 +688,7 @@ function renderTimeline() {
       drawWave(cv, m.bufferId, c.in, c.out, (c.volume ?? 1) * S.origVolume, c.afi, c.afo, w, hasKf(c, 'vol') ? (tt) => kfVal(c, 'vol', tt, c.volume ?? 1) * S.origVolume : null, WAVE_ORIG);
     }
     const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = has ? 'Áudio original' : 'sem áudio'; el.appendChild(nm);
-    if (has) el.insertAdjacentHTML('beforeend', kfMarks(c, c.in, c.out, pps, ['vol']));
+    if (has) el.insertAdjacentHTML('beforeend', kfMarks(c, c.in, c.out, pps / spd(c), ['vol']));
     el.onclick = (e) => { e.stopPropagation(); if (el._dragged) return; has ? select('clipaudio', c.id) : toast('Não consegui ler o áudio deste vídeo', 2500); };
     if (S.sel?.type === 'clipaudio' && S.sel.id === c.id) addHandles(el);
     if (has) bindDrag(el, 'clipaudio', c.id, clipOps(el, r, h));
@@ -684,7 +702,7 @@ function renderTimeline() {
     el.className = 'capb' + (S.sel?.type === 'caption' && S.sel.id === sp.cap.id ? ' sel' : '');
     el.style.left = (h + sp.start * pps) + 'px'; el.style.width = Math.max(3, (sp.end - sp.start) * pps - 1) + 'px';
     el.textContent = stripMarks(sp.cap.text);
-    if (anyKf(sp.cap)) el.insertAdjacentHTML('beforeend', kfMarks(sp.cap, sp.a, sp.a + sp.end - sp.start, pps));
+    if (anyKf(sp.cap)) el.insertAdjacentHTML('beforeend', kfMarks(sp.cap, sp.a, sp.a + (sp.end - sp.start) * sp.k, pps / sp.k));
     el.onclick = (e) => { e.stopPropagation(); if (el._dragged) return; seekTo(sp.start + 0.01); select('caption', sp.cap.id); };
     if (S.sel?.type === 'caption' && S.sel.id === sp.cap.id) addHandles(el);
     bindDrag(el, 'caption', sp.cap.id, capOps(el, sp, h));
@@ -752,7 +770,7 @@ function renderToolbar() {
   if (sel?.type === 'clip') {
     items = [
       ['scissors', 'Dividir', splitAtPlayhead], ['trash', 'Apagar', () => deleteClip(sel.id), 'danger'],
-      ['fade', 'Fade', () => openClipFade(sel.id)], ['zoomIn', 'Zoom', () => openZoomSheet(sel.id)],
+      ['fade', 'Fade', () => openClipFade(sel.id)], ['zoomIn', 'Zoom', () => openZoomSheet(sel.id)], ['gauge', 'Velocidade', () => openSpeedSheet(sel.id)],
       ['zap', 'Transições', () => openTransitionFor(sel.id)], ['contrast', 'Ajustes', () => openColor('clip', sel.id)], ['volume', 'Som', openAudioHub],
       ['x', 'Fechar', () => select(null)],
     ];
@@ -804,14 +822,14 @@ function splitAtPlayhead() {
   if (S.sel?.type === 'audio') return splitAudio(S.sel.id);
   if (S.sel?.type === 'layer') return splitLayer(S.sel.id);
   if (!S.clips.length) return toast('Adicione um vídeo primeiro');
-  const r = clipAt(S.t), s = r.clip.in + (S.t - r.start);
+  const r = clipAt(S.t), s = srcAt(r, S.t);
   if (s - r.clip.in < 0.1 || r.clip.out - s < 0.1) return toast('Mova o cursor para o meio do clipe');
   commit();
   // o áudio vinculado é cortado junto: o fade in fica na parte da esquerda, o fade out na da direita
   const nc = { ...r.clip, id: uid(), in: s, transition: newClipTransition(), afi: 0, vfi: 0 };
   if (r.clip.kf) nc.kf = structuredClone(r.clip.kf); // keyframes ficam iguais nas duas partes (tempo de origem)
   r.clip.out = s; r.clip.afo = 0; r.clip.vfo = 0; S.clips.splice(r.i + 1, 0, nc);
-  const cut = s - r.clip.in;
+  const cut = S.t - r.start; // zooms ficam no tempo da linha do tempo
   S.zooms.forEach((z) => { if (z.clipId === r.clip.id && z.off >= cut) { z.clipId = nc.id; z.off -= cut; } });
   if (S.sel?.type === 'clipaudio' && S.sel.id === r.clip.id) S.sel = null;
   refresh();
@@ -820,6 +838,7 @@ function unlinkAudio(clipId) {
   const r = layout().find((x) => x.clip.id === clipId); if (!r) return;
   const m = media.get(r.clip.mediaId);
   if (!m?.bufferId || r.clip.aOn === false) return toast('Este clipe não tem áudio vinculado');
+  if (spd(r.clip) !== 1) return toast('Volte a velocidade deste clipe para 1x antes de desvincular o áudio', 2600);
   commit();
   const a = { id: uid(), bufferId: m.bufferId, name: 'Áudio de ' + m.name.replace(/\.[^.]+$/, ''), start: r.start, in: r.clip.in, out: r.clip.out,
     volume: (r.clip.volume ?? 1) * S.origVolume, fadeIn: r.clip.afi || 0, fadeOut: r.clip.afo || 0 };
@@ -851,10 +870,10 @@ function trimClip(id, side) {
   commit();
   const d = S.t - r.start;
   if (side === 'start') {
-    r.clip.in += d; S.t = r.start;
+    r.clip.in += d * spd(r.clip); S.t = r.start;
     S.zooms.forEach((z) => { if (z.clipId === id) z.off -= d; });
     S.zooms = S.zooms.filter((z) => z.clipId !== id || z.off >= -0.01).map((z) => (z.clipId === id && z.off < 0 ? { ...z, off: 0 } : z));
-  } else { r.clip.out = r.clip.in + d; S.zooms = S.zooms.filter((z) => z.clipId !== id || z.off < d); }
+  } else { r.clip.out = r.clip.in + d * spd(r.clip); S.zooms = S.zooms.filter((z) => z.clipId !== id || z.off < d); }
   refresh();
 }
 function splitAudio(id) {
@@ -1094,6 +1113,94 @@ function openCutSheet(clipId) {
   });
 }
 // ---------- Zoom in / zoom out (efeito dentro do clipe) ----------
+// ---------- Velocidade do clipe ----------
+const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2, 3];
+const fmtSpd = (k) => `${(+k).toFixed(2).replace(/\.?0+$/, '')}x`;
+const stretchCache = new Map(); // "bufferId|in|out|speed" -> AudioBuffer já esticado (tom da voz preservado)
+const stretchKey = (bufferId, c) => `${bufferId}|${c.in.toFixed(3)}|${c.out.toFixed(3)}|${spd(c)}`;
+function speedJobs() {
+  const jobs = [];
+  for (const c of S.clips) {
+    if (spd(c) === 1 || c.aOn === false) continue;
+    const m = media.get(c.mediaId), b = m && buffers.get(m.bufferId); if (!b) continue;
+    const key = stretchKey(m.bufferId, c); if (!stretchCache.has(key)) jobs.push({ key, buf: b.buffer, a: c.in, b: c.out, k: spd(c) });
+  }
+  return jobs;
+}
+const speedPending = () => speedJobs().length > 0;
+let speedRun = null;
+function prepareSpeeds() {
+  if (speedRun) return speedRun.then(() => (speedPending() ? prepareSpeeds() : null));
+  const jobs = speedJobs(); if (!jobs.length) return Promise.resolve();
+  speedRun = (async () => {
+    for (const j of jobs) { if (!stretchCache.has(j.key)) stretchCache.set(j.key, await timeStretch(j.buf, j.a, j.b, j.k)); }
+    if (stretchCache.size > 40) [...stretchCache.keys()].slice(0, stretchCache.size - 40).forEach((k) => stretchCache.delete(k));
+  })().finally(() => { speedRun = null; });
+  return speedRun;
+}
+// WSOLA: muda a duração do áudio sem mudar o tom (a voz não fica fina nem grossa)
+async function timeStretch(buf, a, b, k) {
+  const sr = buf.sampleRate, nCh = buf.numberOfChannels;
+  const i0 = Math.max(0, Math.floor(a * sr)), i1 = Math.min(buf.length, Math.ceil(b * sr)), N = i1 - i0;
+  const outLen = Math.max(1, Math.round(N / k));
+  const W = Math.round(sr * 0.04) & ~1, Hs = W / 2, Ha = Hs * k, tol = Math.round(sr * 0.012), step = 4;
+  const ins = [], outs = [];
+  for (let ch = 0; ch < nCh; ch++) { ins.push(buf.getChannelData(ch).subarray(i0, i1)); outs.push(new Float32Array(outLen + W)); }
+  const mono = nCh > 1 ? ins[0].map((v, i) => (v + ins[1][i]) * 0.5) : ins[0];
+  const win = new Float32Array(W); for (let i = 0; i < W; i++) win[i] = 0.5 - 0.5 * Math.cos(2 * Math.PI * i / W);
+  const wsum = new Float32Array(outLen + W);
+  let prev = 0;
+  for (let f = 0, o = 0; o < outLen; f++, o += Hs) {
+    let pos = 0;
+    if (f > 0) {
+      const nominal = Math.round(f * Ha), nat = prev + Hs;
+      let best = -Infinity; pos = clamp(nominal, 0, Math.max(0, N - W));
+      const lo = Math.max(0, nominal - tol), hi = Math.min(N - W, nominal + tol);
+      if (nat + Hs <= N) for (let p = lo; p <= hi; p += step) {
+        let sum = 0; for (let i = 0; i < Hs; i += step) sum += mono[p + i] * mono[nat + i];
+        if (sum > best) { best = sum; pos = p; }
+      }
+    }
+    if (pos + W > N) pos = Math.max(0, N - W);
+    for (let ch = 0; ch < nCh; ch++) { const src = ins[ch], dst = outs[ch]; for (let i = 0; i < W && pos + i < N; i++) dst[o + i] += src[pos + i] * win[i]; }
+    for (let i = 0; i < W; i++) wsum[o + i] += win[i];
+    prev = pos;
+    if (f % 400 === 399) await new Promise((r) => setTimeout(r, 0)); // não trava a tela
+  }
+  const res = new AudioBuffer({ length: outLen, numberOfChannels: nCh, sampleRate: sr });
+  for (let ch = 0; ch < nCh; ch++) { const d = outs[ch]; for (let i = 0; i < outLen; i++) d[i] = wsum[i] > 1e-3 ? d[i] / wsum[i] : d[i]; res.copyToChannel(d.subarray(0, outLen), ch); }
+  return res;
+}
+function setClipSpeed(c, k) {
+  k = clamp(Math.round(k * 100) / 100, 0.25, 4);
+  const old = spd(c); if (old === k) return;
+  // zooms ficam no mesmo momento da fala
+  S.zooms.forEach((z) => { if (z.clipId === c.id) { z.off *= old / k; z.dur *= old / k; } });
+  if (k === 1) delete c.speed; else c.speed = k;
+  S.t = clamp(S.t, 0, total());
+  prepareSpeeds().catch((e) => console.warn('velocidade', e));
+}
+function openSpeedSheet(id) {
+  const c = S.clips.find((x) => x.id === id); if (!c) return;
+  const html = () => `<div class="sec">Velocidade do clipe</div>
+    <div class="chips" id="spd-chips">${SPEEDS.map((k) => `<button class="chip ${spd(c) === k ? 'on' : ''}" data-spd="${k}">${fmtSpd(k)}</button>`).join('')}</div>
+    ${rangeRow('spd', 'Ajuste fino', 0.25, 4, 0.05, spd(c), fmtSpd, 1)}
+    <p class="note" id="spd-info">Duração: ${clipLen(c).toFixed(1)}s (original ${(c.out - c.in).toFixed(1)}s). O tom da voz é mantido. Toque duplo no controle volta para 1x.</p>
+    <div class="chips"><button class="chip" id="spd-all">Aplicar ${fmtSpd(spd(c))} em todos os clipes</button></div>`;
+  const upd = (b) => {
+    b.querySelectorAll('[data-spd]').forEach((el) => el.classList.toggle('on', +el.dataset.spd === spd(c)));
+    $('#spd-info', b).textContent = `Duração: ${clipLen(c).toFixed(1)}s (original ${(c.out - c.in).toFixed(1)}s). O tom da voz é mantido. Toque duplo no controle volta para 1x.`;
+    $('#spd-all', b).textContent = `Aplicar ${fmtSpd(spd(c))} em todos os clipes`;
+    const r = $('[data-k="spd"]', b); if (r) { r.value = spd(c); $('[data-v="spd"]', b).textContent = fmtSpd(spd(c)); }
+    updTime();
+  };
+  openSheet('speed', 'Velocidade', html(), (b) => {
+    bindRanges(b, { spd: { set: (v) => { setClipSpeed(c, v); upd(b); }, fmt: fmtSpd, after: () => { renderTimeline(); saveSoon(); } } });
+    b.querySelectorAll('[data-spd]').forEach((el) => el.onclick = () => { commit(); setClipSpeed(c, +el.dataset.spd); upd(b); renderTimeline(); draw(); });
+    $('#spd-all', b).onclick = () => { commit(); const k = spd(c); S.clips.forEach((x) => setClipSpeed(x, k)); upd(b); renderTimeline(); draw(); toast(`Todos os clipes em ${fmtSpd(k)}`); };
+  });
+}
+
 const ease = (p) => (p < 0.5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2);
 function zoomAt(t, r) {
   if (!r || !S.zooms.length) return 1;
@@ -1217,7 +1324,7 @@ function kfTarget(sel = S.sel) {
     const r = layout().find((x) => x.clip.id === sel.id); if (!r) return null;
     const c = r.clip, hasA = c.aOn !== false && !!buffers.get(media.get(c.mediaId)?.bufferId);
     return { kind: 'clip', o: c, name: sel.type === 'clip' ? 'Clipe de vídeo' : 'Áudio do clipe', props: sel.type === 'clip' ? [...KF_VIS, ...(hasA ? ['vol'] : [])] : ['vol'],
-      a: r.start, b: r.end, src: (t) => c.in + (t - r.start), tl: (s) => r.start + (s - c.in) };
+      a: r.start, b: r.end, src: (t) => srcAt(r, t), tl: (s) => tlAt(r, s) };
   }
   if (sel.type === 'layer') {
     const o = S.layers.find((x) => x.id === sel.id); if (!o || o.kind === 'adjust') return null;
@@ -1664,7 +1771,7 @@ function openTextSheet(id, fresh = false) {
   openSheet('layer', 'Texto', `
     <textarea id="tx-text" class="tx-in" rows="2" placeholder="Digite o texto">${esc(L.text)}</textarea>
     <div class="sec">Fonte</div>
-    <div class="chips">${FONTS.map((f) => `<button class="chip ${L.font === f.id ? 'on' : ''}" data-font="${f.id}" style="font-family:${f.css}">${f.id}</button>`).join('')}</div>
+    <div class="chips">${fontChips(L.font)}</div>
     <div class="sec">Peso</div>
     <div class="chips">${[[400, 'Normal'], [600, 'Médio'], [700, 'Negrito'], [800, 'Extra']].map(([w, l]) => `<button class="chip ${L.weight === w ? 'on' : ''}" data-weight="${w}">${l}</button>`).join('')}</div>
     <div class="sec">Cor</div>
@@ -1690,6 +1797,7 @@ function openTextSheet(id, fresh = false) {
     });
     const loadF = () => document.fonts.load(`${L.weight} 40px ${fontCss(L.font)}`).then(draw);
     pick('font', (v) => { L.font = v; loadF(); });
+    bindAddFont(b, (id) => { commit(); L.font = id; openTextSheet(L.id); loadF(); });
     pick('weight', (v) => { L.weight = +v; loadF(); });
     pick('color', (v) => { L.color = v; $('#tx-color', b).value = v; });
     pick('bg', (v) => { L.bg = v; });
@@ -1868,17 +1976,18 @@ function clipOps(el, r, h) {
     start: (st) => { st.o = { in: c.in, out: c.out }; },
     move: (st, dt) => {
       const pps = st.pps;
-      if (st.mode === 'l') c.in = clamp(st.o.in + dt, 0, st.o.out - 0.2);
-      else if (st.mode === 'r') c.out = clamp(st.o.out + dt, st.o.in + 0.2, dur);
+      const k = spd(c);
+      if (st.mode === 'l') c.in = clamp(st.o.in + dt * k, 0, st.o.out - 0.2);
+      else if (st.mode === 'r') c.out = clamp(st.o.out + dt * k, st.o.in + 0.2, dur);
       else { el.style.transform = `translateX(${dt * pps}px)`; el.style.zIndex = 6; st.dt = dt; return; }
-      el.style.width = Math.max(3, (c.out - c.in) * pps - 2) + 'px';
+      el.style.width = Math.max(3, clipLen(c) * pps - 2) + 'px';
     },
     end: (st) => {
       if (st.mode === 'l') {
-        const d = c.in - st.o.in;
+        const d = (c.in - st.o.in) / spd(c);
         S.zooms = S.zooms.map((z) => (z.clipId === c.id ? { ...z, off: z.off - d } : z)).filter((z) => z.clipId !== c.id || z.off >= -0.01).map((z) => (z.clipId === c.id && z.off < 0 ? { ...z, off: 0 } : z));
       } else if (st.mode === 'r') {
-        S.zooms = S.zooms.filter((z) => z.clipId !== c.id || z.off < c.out - c.in);
+        S.zooms = S.zooms.filter((z) => z.clipId !== c.id || z.off < clipLen(c));
       } else if (st.dt) {
         const lay = layout(), me = lay.find((x) => x.clip.id === c.id); if (!me) return;
         const center = me.start + st.dt + (me.end - me.start) / 2;
@@ -1895,12 +2004,12 @@ function capOps(el, sp, h) {
   return {
     start: (st) => { st.o = { start: cap.start, end: cap.end }; },
     move: (st, dt) => {
-      const o = st.o, pps = st.pps;
+      const o = st.o, pps = st.pps, k = sp.k || 1; dt *= k; // dt chega em tempo de linha do tempo; a legenda guarda tempo do arquivo
       if (st.mode === 'l') cap.start = clamp(o.start + dt, 0, o.end - 0.1);
       else if (st.mode === 'r') cap.end = Math.max(o.start + 0.1, o.end + dt);
       else { const d = Math.max(-o.start, dt); cap.start = o.start + d; cap.end = o.end + d; }
-      el.style.left = (h + (sp.start + cap.start - o.start) * pps) + 'px';
-      el.style.width = Math.max(3, (sp.end - sp.start + (cap.end - o.end) - (cap.start - o.start)) * pps - 1) + 'px';
+      el.style.left = (h + (sp.start + (cap.start - o.start) / k) * pps) + 'px';
+      el.style.width = Math.max(3, (sp.end - sp.start + ((cap.end - o.end) - (cap.start - o.start)) / k) * pps - 1) + 'px';
     },
   };
 }
@@ -2058,7 +2167,7 @@ function openAudioHub() {
   if (clip) {
     const m = media.get(clip.mediaId), has = !!(m && buffers.get(m.bufferId));
     if (has && clip.aOn !== false) {
-      const len = clip.out - clip.in, maxF = Math.max(0.1, Math.min(10, len / 2)).toFixed(1);
+      const len = clipLen(clip), maxF = Math.max(0.1, Math.min(10, len / 2)).toFixed(1);
       parts.push({
         html: `<div class="sec">Som deste clipe</div>
           ${rangeRow('cv', 'Volume', 0, 200, 1, Math.round((clip.volume ?? 1) * 100), pctf)}
@@ -2357,12 +2466,14 @@ function capStyleHTML() {
       <button class="tpl-card ${!tpl ? 'on' : ''}" data-tpl=""><canvas data-prev-plain></canvas><span>Simples</span></button>
       ${TEMPLATES.map((t) => `<button class="tpl-card ${tpl?.id === t.id ? 'on' : ''}" data-tpl="${t.id}"><canvas data-prev-cap="${t.id}"></canvas><span>${t.name}</span></button>`).join('')}
     </div>
+    ${tpl ? `<div class="sec">Fonte da fala corrida</div>
+    <div class="chips"><button class="chip addfont" data-addfont>${inlineIc('plus')} Adicionar fonte</button><button class="chip ${!c.tfont ? 'on' : ''}" data-tfont="">Do modelo</button>${FONTS.map((f) => `<button class="chip ${c.tfont === f.id ? 'on' : ''}" data-tfont="${esc(f.id)}" style="font-family:${esc(f.css)}">${esc(f.id)}</button>`).join('')}</div>` : ''}
     ${tpl ? capTplColorsHTML(c, tpl) : ''}
     ${tpl ? `<button class="btn" id="cap-anim">${inlineIc('zap')} Entrada das palavras: ${esc(c.anim ? animLabel(c.anim) : 'Padrão do modelo')}</button>` : ''}
     ${tpl ? `<button class="btn primary" id="cap-auto">${inlineIc('zap')} Destacar pontos altos automaticamente</button>
     <p class="note">${esc(tpl.desc)}. A fala corrida sai palavra por palavra na fonte base; nos pontos altos entra a combinação do modelo. Os destaques ficam entre *asteriscos* no texto (aba Legendas): marque ou desmarque à mão quando quiser.${tpl.combo === 'script' ? ' Para a combinação, use duas partes diferentes: *grande* e _manuscrito_ (ex.: conteúdo é *profissão* _mais vida_).' : ''}</p>` : ''}
     ${tpl ? '' : `<div class="sec">Fonte</div>
-    <div class="chips">${FONTS.map((f) => `<button class="chip ${c.font === f.id ? 'on' : ''}" data-font="${f.id}" style="font-family:${f.css}">${f.id}</button>`).join('')}</div>
+    <div class="chips">${fontChips(c.font)}</div>
     <div class="sec">Peso</div>
     <div class="chips">${[[400, 'Normal'], [600, 'Médio'], [700, 'Negrito'], [800, 'Extra']].map(([w, l]) => `<button class="chip ${c.weight === w ? 'on' : ''}" data-weight="${w}">${l}</button>`).join('')}</div>
     <div class="sec">Cor</div>
@@ -2400,6 +2511,8 @@ function bindCapStyle(b) {
     commit(); fn(el.dataset[attr]); b.querySelectorAll(`[data-${attr}]`).forEach((x) => x.classList.toggle('on', x === el)); draw();
   });
   pick('font', (v) => { c.font = v; document.fonts.load(`${c.weight} 40px ${fontCss(v)}`).then(draw); });
+  pick('tfont', (v) => { c.tfont = v || null; savePrefs(); if (v) document.fonts.load(`700 40px ${fontCss(v)}`).then(draw); });
+  bindAddFont(b, (id) => { commit(); if (tplById(c.tpl)) c.tfont = id; else c.font = id; savePrefs(); openCaptions('estilo'); document.fonts.load(`${c.weight} 40px ${fontCss(id)}`).then(draw); });
   pick('weight', (v) => { c.weight = +v; document.fonts.load(`${c.weight} 40px ${fontCss(c.font)}`).then(draw); });
   pick('color', (v) => { c.color = v; $('#cap-color', b).value = v; });
   let pend = null;
@@ -2657,6 +2770,7 @@ async function renderMixdown(T, sr) {
   ac(); await actx.resume().catch(() => {});
   // garante que os sons das transições já estão carregados
   for (let k = 0; k < 40 && cuts().some((c) => !transSound(c.type)); k++) await new Promise((r) => setTimeout(r, 50));
+  await prepareSpeeds();
   const off = new OfflineAudioContext(2, Math.max(1, Math.ceil(T * sr)), sr);
   scheduleAudio(0, off.destination, off);
   return off.startRendering();
@@ -2767,7 +2881,7 @@ async function exportFrames(res, codecs) {
     // pré-carrega o próximo clipe no outro player
     const nr = L[ci + 1], other = pool.find((x) => x !== v);
     if (nr) { other.pause(); assign(other, nr.clip, nr.clip.in); }
-    const srcT = (kk) => Math.min(c.out - 0.001, Math.max(c.in, c.in + (kk / FPS - r.start)));
+    const srcT = (kk) => Math.min(c.out - 0.001, Math.max(c.in, srcAt(r, kk / FPS)));
     const lastK = () => k >= total_frames || k / FPS >= r.end - 1e-3;
     let gaps = 0;
     while (!lastK() && !ex.cancelled && !encErr) {
@@ -2796,7 +2910,7 @@ async function exportFrames(res, codecs) {
           if (ex.cancelled || encErr) return end('done');
           if (performance.now() - lastCb > 1200 && venc.encodeQueueSize <= 3) end('stall');
         }, 250);
-        E.stalled = false; v.playbackRate = rate; E.rate = rate; v.play().catch(() => end('stall'));
+        E.stalled = false; v.playbackRate = rate * spd(c); E.rate = rate; v.play().catch(() => end('stall'));
       });
       v.onended = null;
       if (res === 'gap') { if (++gaps >= 6) seekMode = true; else { rate = Math.max(0.25, rate * 0.75); } }
@@ -2948,6 +3062,140 @@ async function saveExport(x) {
   const a = document.createElement('a'); a.href = x.url; a.download = x.name; document.body.appendChild(a); a.click(); a.remove();
   return true;
 }
+// ---------- Fontes adicionadas pela pessoa ----------
+// Ficam SÓ no aparelho (IndexedDB): nada vai para o banco de dados. Vêm do Google Fonts (baixadas uma vez e guardadas)
+// ou de um arquivo .ttf/.otf/.woff/.woff2 que a pessoa escolhe.
+const GOOGLE_FONTS = ['Bebas Neue', 'Oswald', 'Archivo Black', 'Bricolage Grotesque', 'DM Sans', 'DM Serif Display', 'Playfair Display', 'Lora', 'Merriweather',
+  'Raleway', 'Roboto', 'Open Sans', 'Lato', 'Nunito', 'Rubik', 'Work Sans', 'Space Grotesk', 'Sora', 'Outfit', 'Manrope', 'Plus Jakarta Sans', 'Urbanist',
+  'League Spartan', 'Barlow Condensed', 'Fjalla One', 'Abril Fatface', 'Righteous', 'Lobster', 'Pacifico', 'Dancing Script', 'Caveat', 'Satisfy',
+  'Sacramento', 'Allura', 'Parisienne', 'Great Vibes', 'Kaushan Script', 'Permanent Marker', 'Bangers', 'Luckiest Guy', 'Titan One', 'Alfa Slab One',
+  'Cormorant Garamond', 'Cinzel', 'Josefin Sans', 'Syne', 'Unbounded', 'Kanit', 'Fredoka', 'Staatliches', 'Teko', 'Instrument Serif', 'Archivo',
+  'Big Shoulders Display', 'Libre Baskerville', 'Yeseva One', 'Monoton', 'Shrikhand'];
+const customFaces = new Map(); // id -> [FontFace]
+const fontChips = (sel) => `<button class="chip addfont" data-addfont>${inlineIc('plus')} Adicionar fonte</button>` +
+  FONTS.map((f) => `<button class="chip ${sel === f.id ? 'on' : ''}" data-font="${esc(f.id)}" style="font-family:${esc(f.css)}">${esc(f.id)}</button>`).join('');
+function bindAddFont(b, onPick) { const el = b.querySelector('[data-addfont]'); if (el) el.onclick = () => openFontPicker(onPick); }
+const fontCssFor = (id) => `'${id.replace(/'/g, '')}', sans-serif`;
+function registerFont(rec) {
+  const faces = rec.faces.map((f) => new FontFace(rec.id.replace(/'/g, ''), f.data, { weight: f.w || '100 900', style: 'normal', ...(f.ur ? { unicodeRange: f.ur } : {}) }));
+  return Promise.all(faces.map((f) => f.load())).then(() => {
+    faces.forEach((f) => document.fonts.add(f));
+    customFaces.set(rec.id, faces);
+    if (!FONTS.some((x) => x.id === rec.id)) FONTS.push({ id: rec.id, css: fontCssFor(rec.id), custom: rec.src || 'arquivo' });
+  });
+}
+async function loadCustomFonts() {
+  let list = []; try { list = (await dbGet('fontes')) || []; } catch {}
+  for (const rec of list) { try { await registerFont(rec); } catch (e) { console.warn('fonte', rec.id, e); } }
+}
+async function saveFontRec(rec) { const list = ((await dbGet('fontes').catch(() => null)) || []).filter((x) => x.id !== rec.id); list.push(rec); await dbPut('fontes', list); }
+async function removeFont(id) {
+  const list = ((await dbGet('fontes').catch(() => null)) || []).filter((x) => x.id !== id); await dbPut('fontes', list);
+  (customFaces.get(id) || []).forEach((f) => document.fonts.delete(f)); customFaces.delete(id);
+  const i = FONTS.findIndex((x) => x.id === id && x.custom); if (i >= 0) FONTS.splice(i, 1);
+  draw();
+}
+function uniqueFontId(name) {
+  let id = name.replace(/['"\\]/g, '').replace(/\s+/g, ' ').trim().slice(0, 40) || 'Minha fonte', n = 2;
+  const base = id; while (FONTS.some((f) => f.id.toLowerCase() === id.toLowerCase())) id = `${base} ${n++}`;
+  return id;
+}
+async function installFontFile(file) {
+  if (/\.zip$/i.test(file.name)) throw new Error('Descompacte o .zip e escolha o arquivo .ttf ou .otf de dentro dele');
+  if (file.size > 15 * 1048576) throw new Error('Arquivo grande demais para uma fonte');
+  const data = await file.arrayBuffer();
+  const name = file.name.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ').replace(/([a-z])([A-Z])/g, '$1 $2').replace(/\s+(Regular|Normal|Book)$/i, '');
+  const rec = { id: uniqueFontId(name), src: 'arquivo', faces: [{ w: '100 900', data }] };
+  try { await registerFont(rec); } catch { throw new Error('Esse arquivo não é uma fonte válida (use .ttf, .otf, .woff ou .woff2)'); }
+  await saveFontRec(rec);
+  return rec.id;
+}
+async function installGoogleFont(family) {
+  family = family.replace(/\s+/g, ' ').trim();
+  const exist = FONTS.find((f) => f.id.toLowerCase() === family.toLowerCase()); if (exist) return exist.id;
+  const base = 'https://fonts.googleapis.com/css2?family=' + encodeURIComponent(family).replace(/%20/g, '+');
+  let css = '';
+  for (const u of [base + ':wght@400;700&display=swap', base + '&display=swap']) { const r = await fetch(u).catch(() => null); if (r && r.ok) { css = await r.text(); break; } }
+  if (!css) throw new Error(`Não achei "${family}" no Google Fonts`);
+  // só os blocos latinos (português); arquivos repetidos (fonte variável) viram uma face com faixa de peso
+  const blocks = [...css.matchAll(/(?:\/\*\s*([\w-]+)\s*\*\/\s*)?@font-face\s*{([^}]*)}/g)].map((m) => ({ sub: m[1] || 'latin', body: m[2] }))
+    .filter((x) => x.sub === 'latin' || x.sub === 'latin-ext');
+  const byUrl = new Map();
+  for (const bl of blocks) {
+    const url = bl.body.match(/url\(([^)]+)\)/)?.[1], w = +(bl.body.match(/font-weight:\s*(\d+)/)?.[1] || 400), ur = bl.body.match(/unicode-range:\s*([^;]+);/)?.[1];
+    if (!url || /font-style:\s*italic/.test(bl.body)) continue;
+    const o = byUrl.get(url) || { url, ws: [], ur }; o.ws.push(w); byUrl.set(url, o);
+  }
+  if (!byUrl.size) throw new Error('Essa fonte não tem os caracteres do português');
+  const faces = [];
+  for (const o of byUrl.values()) {
+    const r = await fetch(o.url); if (!r.ok) throw new Error('Falha ao baixar a fonte');
+    const lo = Math.min(...o.ws), hi = Math.max(...o.ws);
+    faces.push({ w: lo === hi ? String(lo) : `${lo} ${hi}`, ur: o.ur, data: await r.arrayBuffer() });
+  }
+  const rec = { id: family, src: 'google', faces };
+  await registerFont(rec); await saveFontRec(rec);
+  return rec.id;
+}
+function openFontPicker(onPick) {
+  document.getElementById('fontpick')?.remove();
+  const ov = document.createElement('div'); ov.id = 'fontpick';
+  const iOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
+  ov.innerHTML = `<div class="fp-card" role="dialog" aria-label="Adicionar fonte">
+    <div class="fp-head"><h3>Adicionar fonte</h3><button class="icon" data-close aria-label="Fechar">${ic('x')}</button></div>
+    <button class="fp-import" data-import>${ic('upload')}<span><b>Importar arquivo de fonte</b><small>.ttf, .otf, .woff ou .woff2 que você baixou</small></span></button>
+    <input type="file" hidden data-file ${iOS ? '' : 'accept=".ttf,.otf,.woff,.woff2,font/ttf,font/otf,font/woff,font/woff2"'}>
+    <div class="fp-mine"></div>
+    <input class="tx-in fp-search" type="search" placeholder="Buscar no Google Fonts (ex.: Bebas Neue)" autocomplete="off">
+    <div class="fp-list"></div>
+    <p class="note">As fontes ficam guardadas só neste aparelho: funcionam sem internet e não ocupam espaço na sua conta.</p>
+  </div>`;
+  document.body.appendChild(ov);
+  const close = () => ov.remove();
+  ov.addEventListener('click', (e) => { if (e.target === ov || e.target.closest('[data-close]')) close(); });
+  const done = (id) => { close(); toast(`Fonte "${id}" pronta`); onPick(id); };
+  const busy = (el, txt) => { el.disabled = true; el.dataset.txt = el.innerHTML; el.innerHTML = txt; };
+  const unbusy = (el) => { el.disabled = false; if (el.dataset.txt) el.innerHTML = el.dataset.txt; };
+  // importar arquivo (fica no topo)
+  const fi = $('[data-file]', ov), ib = $('[data-import]', ov);
+  ib.onclick = () => fi.click();
+  fi.onchange = async () => {
+    const f = fi.files[0]; fi.value = ''; if (!f) return;
+    busy(ib, `${ic('upload')}<span><b>Instalando…</b><small>${esc(f.name)}</small></span>`);
+    try { done(await installFontFile(f)); } catch (e) { unbusy(ib); toast(e.message || 'Não consegui instalar essa fonte', 3200); }
+  };
+  // fontes já adicionadas
+  const mine = $('.fp-mine', ov);
+  const paintMine = () => {
+    const cs = FONTS.filter((f) => f.custom);
+    mine.innerHTML = cs.length ? `<div class="sec">Suas fontes</div>` + cs.map((f) => `<div class="fp-row"><button class="fp-name" data-use="${esc(f.id)}" style="font-family:${esc(f.css)}">${esc(f.id)}</button><button class="icon fp-del" data-del="${esc(f.id)}" aria-label="Remover ${esc(f.id)}">${ic('trash')}</button></div>`).join('') : '';
+    mine.querySelectorAll('[data-use]').forEach((el) => el.onclick = () => done(el.dataset.use));
+    mine.querySelectorAll('[data-del]').forEach((el) => el.onclick = async () => { if (!confirm(`Remover a fonte "${el.dataset.del}" deste aparelho?`)) return; await removeFont(el.dataset.del); paintMine(); paintList(); });
+  };
+  // Google Fonts: prévia leve (só as letras do nome) com um único pedido
+  if (!document.getElementById('gf-prev')) {
+    const lk = document.createElement('link'); lk.id = 'gf-prev'; lk.rel = 'stylesheet';
+    const letters = [...new Set(GOOGLE_FONTS.join(''))].join('');
+    lk.href = 'https://fonts.googleapis.com/css2?' + GOOGLE_FONTS.map((f) => 'family=' + f.replace(/ /g, '+')).join('&') + '&text=' + encodeURIComponent(letters) + '&display=swap';
+    document.head.appendChild(lk);
+  }
+  const list = $('.fp-list', ov), search = $('.fp-search', ov);
+  const paintList = () => {
+    const q = search.value.trim(), ql = q.toLowerCase();
+    const items = GOOGLE_FONTS.filter((f) => !ql || f.toLowerCase().includes(ql));
+    const extra = q && !GOOGLE_FONTS.some((f) => f.toLowerCase() === ql) ? `<div class="fp-row"><button class="fp-name" data-g="${esc(q)}">Buscar "${esc(q)}" no Google Fonts</button><span class="fp-get">Baixar</span></div>` : '';
+    list.innerHTML = extra + items.map((f) => { const has = FONTS.some((x) => x.id.toLowerCase() === f.toLowerCase());
+      return `<div class="fp-row"><button class="fp-name" data-g="${esc(f)}" style="font-family:'${f}', sans-serif">${esc(f)}</button><span class="fp-get ${has ? 'ok' : ''}">${has ? 'Instalada' : 'Baixar'}</span></div>`; }).join('');
+    list.querySelectorAll('[data-g]').forEach((el) => el.onclick = async () => {
+      const row = el.parentElement, tag = $('.fp-get', row); if (row.classList.contains('busy')) return;
+      row.classList.add('busy'); tag.textContent = 'Baixando…';
+      try { done(await installGoogleFont(el.dataset.g)); } catch (e) { row.classList.remove('busy'); tag.textContent = 'Baixar'; toast(e.message || 'Sem internet para baixar a fonte', 3000); }
+    });
+  };
+  search.addEventListener('input', paintList);
+  paintMine(); paintList();
+}
+
 async function ensureFonts() {
   const loads = [];
   for (const f of ['Poppins', 'Montserrat']) for (const w of [400, 600, 700, 800]) loads.push(document.fonts.load(`${w} 40px "${f}"`));
@@ -3116,9 +3364,10 @@ window.addEventListener('resize', () => renderTimeline());
 document.addEventListener('visibilitychange', () => { if (document.hidden && E.playing && !E.exporting) pause(); if (document.hidden) saveProject(); });
 document.fonts.ready.then(draw);
 ensureFonts().then(draw);
+loadCustomFonts().then(() => { try { draw(); } catch {} });
 try { navigator.storage?.persist?.(); } catch {}
 // versão do app: aparece pequena ao lado do nome, para conferir se atualizou
-const APP_VERSION = 25;
+const APP_VERSION = 26;
 loadTemplateFonts().then(() => { try { draw(); } catch {} });
 { const b = document.querySelector('.brand-ver'); if (b) b.textContent = 'v' + APP_VERSION; }
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
@@ -3476,7 +3725,7 @@ async function aplicarReceita(r, F = {}) {
     textos++;
   }
   A.aplicar(); savePrefs();
-  const dur = S.clips.reduce((t, c) => t + c.out - c.in, 0);
+  const dur = total();
   return `${S.clips.length} cortes, ${dur.toFixed(0)} s` + (comb ? `, ${comb} frase(s) de efeito` : '') + (sons ? `, ${sons} som(ns)` : '') + (textos ? `, ${textos} texto(s)` : '') + (r.resumo ? ` — ${r.resumo}` : '');
 }
 
