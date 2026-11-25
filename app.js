@@ -6,7 +6,7 @@ import { TEMPLATES, LAYOUTS, tplById, layoutById, parseMarked, stripMarks, drawC
 import { ANIM_GROUPS, presetsOf, presetByName, animLabel, SPLIT_LABEL, layerPhase, hasAnim, splitSlices, sliceState, applyState, makePlan, emphasisTime } from './animacoes.js?v=26';
 import * as conta from './conta.js?v=25b';
 import { criarAgente } from './agente.js?v=26';
-import * as RT from './textorico.js?v=27';
+import * as RT from './textorico.js?v=28';
 const seedOf = (id) => { let h = 7; for (const c of String(id)) h = (h * 31 + c.charCodeAt(0)) >>> 0; return h % 100000; };
 
 const $ = (s, el = document) => el.querySelector(s);
@@ -112,7 +112,7 @@ const buffers = new Map();  // id -> { buffer, peaks, name, fileKey }
 
 function loadPrefs() { try { return JSON.parse(localStorage.getItem('corte-prefs') || '{}'); } catch { return {}; } }
 function savePrefs() {
-  try { localStorage.setItem('corte-prefs', JSON.stringify({ v: 3, cap: S.cap, fx: S.fx, groqKey: prefs.groqKey, res: prefs.res, zoomDef: prefs.zoomDef, fadeDef: prefs.fadeDef, sfxTrim: prefs.sfxTrim, textTpl: prefs.textTpl })); } catch {}
+  try { localStorage.setItem('corte-prefs', JSON.stringify({ v: 3, cap: S.cap, fx: S.fx, groqKey: prefs.groqKey, res: prefs.res, br: prefs.br, zoomDef: prefs.zoomDef, fadeDef: prefs.fadeDef, sfxTrim: prefs.sfxTrim, textTpl: prefs.textTpl })); } catch {}
 }
 
 // ---------- Histórico (desfazer/refazer) ----------
@@ -3076,6 +3076,13 @@ function pickMime() {
   return opts.find((m) => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || '';
 }
 let lastExport = null;
+// taxa de bits do vídeo (bits/s): Leve deixa o arquivo bem menor, Máxima guarda mais detalhe
+const BITRATES = { '1080': { leve: 4_000_000, normal: 10_000_000, max: 20_000_000 }, '4k': { leve: 12_000_000, normal: 30_000_000, max: 50_000_000 } };
+const expBr = () => (BITRATES[prefs.res || '1080'] || BITRATES['1080'])[prefs.br || 'normal'] || 10_000_000;
+function expTamanho() {
+  const mb = total() * (expBr() + 192_000) / 8 / 1e6;
+  return `${(expBr() / 1e6).toLocaleString('pt-BR')} Mbps · cerca de ${mb < 10 ? mb.toFixed(1).replace('.', ',') : Math.round(mb)} MB`;
+}
 function openExport() {
   if (!S.clips.length) return toast('Adicione um vídeo primeiro');
   if (E.playing) pause();
@@ -3085,12 +3092,21 @@ function openExport() {
       <button class="chip ${res === '1080' ? 'on' : ''}" data-res="1080">Full HD (1080p)</button>
       <button class="chip ${res === '4k' ? 'on' : ''}" data-res="4k">4K</button>
     </div>
+    <p class="note" style="margin:14px 0 6px">Taxa de bits (tamanho do arquivo)</p>
+    <div class="chips">
+      ${[['leve', 'Leve'], ['normal', 'Normal'], ['max', 'Máxima']].map(([k, t]) => `<button class="chip ${(prefs.br || 'normal') === k ? 'on' : ''}" data-br="${k}">${t}</button>`).join('')}
+    </div>
+    <p class="note" id="exp-tam">${expTamanho()}</p>
     <div id="exp-run" style="display:none"><div class="progress"><div id="exp-bar"></div></div><p class="note" id="exp-st"></p></div>
     <button class="btn primary" id="exp-btn">Exportar vídeo</button>
   `, (b) => {
     b.querySelectorAll('[data-res]').forEach((el) => el.onclick = () => {
       if (E.exporting) return;
       prefs.res = el.dataset.res; savePrefs(); b.querySelectorAll('[data-res]').forEach((x) => x.classList.toggle('on', x === el)); expUI();
+    });
+    b.querySelectorAll('[data-br]').forEach((el) => el.onclick = () => {
+      if (E.exporting) return;
+      prefs.br = el.dataset.br; savePrefs(); b.querySelectorAll('[data-br]').forEach((x) => x.classList.toggle('on', x === el)); expUI();
     });
     // um único botão: Exportar vídeo → Cancelar (exportando) → Baixar (pronto)
     $('#exp-btn', b).onclick = () => {
@@ -3102,13 +3118,14 @@ function openExport() {
     expUI();
   });
 }
-const expSig = () => snap() + '|' + (prefs.res || '1080');
+const expSig = () => snap() + '|' + (prefs.res || '1080') + '|' + (prefs.br || 'normal');
 function expState() { return E.exporting ? 'run' : lastExport && lastExport.sig === expSig() ? 'done' : 'idle'; }
 function expUI(st = expState()) {
   const btn = $('#exp-btn'), run = $('#exp-run'); if (!btn) return;
   btn.textContent = st === 'run' ? 'Cancelar' : st === 'done' ? 'Baixar' : 'Exportar vídeo';
   btn.classList.toggle('primary', st !== 'run');
   run.style.display = st === 'run' ? 'block' : 'none';
+  const tam = $('#exp-tam'); if (tam) tam.textContent = expTamanho();
 }
 async function startExport(res) {
   const mime = pickMime();
@@ -3121,7 +3138,8 @@ async function startExport(res) {
   const cx = cv.getContext('2d'); cx.fillStyle = '#000'; cx.fillRect(0, 0, W, H);
   // sem um clique na página o Chrome não libera o áudio e resume() nunca termina: não espera para sempre
   ac(); await Promise.race([actx.resume(), new Promise((r) => setTimeout(r, 1500))]);
-  const codecs = await pickCodecs(W, H, res === '4k' ? 30_000_000 : 10_000_000);
+  const vbr = (BITRATES[res] || BITRATES['1080'])[prefs.br || 'normal'] || 10_000_000;
+  const codecs = await pickCodecs(W, H, vbr);
   if (!codecs && actx.state !== 'running') {
     E.exporting = false; expUI(); expFalhou('o Chrome bloqueou o áudio: clique uma vez na página e exporte de novo');
     return toast('Clique uma vez na página e exporte de novo', 3500);
@@ -3144,7 +3162,7 @@ async function startExport(res) {
   }
   const dest = actx.createMediaStreamDestination();
   const stream = new MediaStream([...cv.captureStream(30).getVideoTracks(), ...dest.stream.getAudioTracks()]);
-  const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: res === '4k' ? 40_000_000 : 14_000_000, audioBitsPerSecond: 192_000 });
+  const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: Math.round(vbr * 1.4), audioBitsPerSecond: 192_000 });
   const chunks = [];
   rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
   try { E.wake = await navigator.wakeLock?.request('screen'); } catch {}
