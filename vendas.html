@@ -199,6 +199,80 @@ section{padding:96px 0}
 .garantia p{margin:0;color:var(--ink2);font-size:15px}
 .garantia b{color:var(--ink)}
 
+
+/* selo "só no Completo" */
+.so-completo{display:inline-flex;align-items:center;font:700 11px Inter,sans-serif;letter-spacing:.04em;text-transform:uppercase;padding:4px 9px;border-radius:999px;background:rgba(255,109,41,.16);color:#ffa26f;border:1px solid rgba(255,109,41,.4);vertical-align:middle}
+.so-completo.abs{position:absolute;top:22px;right:22px}
+.hl{color:var(--ink);background:linear-gradient(transparent 60%,rgba(155,92,255,.45) 60%)}
+.verde{color:var(--ok)}
+
+/* seção IA */
+.ia-sec{background:radial-gradient(60% 70% at 80% 50%,rgba(155,92,255,.16),transparent 70%)}
+.ia-grid{display:grid;grid-template-columns:1.1fr .9fr;gap:56px;align-items:center}
+.badge-ia{display:inline-flex;align-items:center;gap:8px;padding:8px 14px;border-radius:999px;background:linear-gradient(90deg,#ff6d29,#ff9a5c);font:700 13px Inter,sans-serif;margin-bottom:18px;box-shadow:0 8px 24px rgba(255,109,41,.35)}
+.badge-ia svg{width:16px;height:16px}
+.ia-list{list-style:none;padding:0;margin:26px 0}
+.ia-list li{display:flex;gap:12px;padding:8px 0;color:var(--ink2)}
+.ia-list li svg{flex:none;width:20px;height:20px;color:var(--ok);margin-top:3px}
+.ia-list b{color:var(--ink)}
+.ia-aviso{display:flex;gap:12px;padding:16px 18px;border-radius:16px;background:rgba(255,109,41,.08);border:1px solid rgba(255,109,41,.35);margin-bottom:26px}
+.ia-aviso svg{flex:none;width:20px;height:20px;color:#ffa26f;margin-top:2px}
+.ia-aviso p{margin:0;font-size:15px;color:var(--ink2)}
+.ia-aviso b{color:var(--ink)}
+.ia-demo{padding:24px;border-radius:26px;background:linear-gradient(170deg,#24154a,#130c20);border:1px solid rgba(155,92,255,.45);box-shadow:0 30px 70px rgba(0,0,0,.5),0 0 60px rgba(139,80,255,.2)}
+.ia-head{display:flex;justify-content:space-between;align-items:center;font:700 17px Poppins,sans-serif;margin-bottom:16px}
+.ia-head span{display:flex;align-items:center;gap:8px}.ia-head svg{width:20px;height:20px;color:var(--accent2)}
+.ia-head em{font:700 11px Inter,sans-serif;font-style:normal;text-transform:uppercase;letter-spacing:.05em;padding:4px 9px;border-radius:999px;background:var(--logo)}
+.ia-lbl{font-size:12px;color:var(--ink3);font-weight:600;margin:12px 0 7px}
+.ia-chips{display:flex;flex-wrap:wrap;gap:6px}
+.ia-chips span{font-size:13px;font-weight:600;padding:7px 12px;border-radius:999px;background:rgba(255,255,255,.06);border:1px solid var(--line);color:var(--ink2)}
+.ia-chips span.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.ia-run{margin-top:20px;padding:16px;border-radius:16px;background:rgba(0,0,0,.25);border:1px solid var(--line)}
+.st{display:flex;align-items:center;gap:9px;font-size:14px;padding:5px 0;color:var(--ink3);animation:st 7s infinite}
+.st svg{width:16px;height:16px;color:var(--ok);opacity:0;animation:stc 7s infinite}
+.s2,.s2 svg{animation-delay:.9s}.s3,.s3 svg{animation-delay:1.8s}.s4,.s4 svg{animation-delay:2.7s}.s5,.s5 svg{animation-delay:3.6s}
+@keyframes st{0%,8%{color:var(--ink3)}12%,90%{color:var(--ink)}100%{color:var(--ink3)}}
+@keyframes stc{0%,8%{opacity:0}12%,90%{opacity:1}100%{opacity:0}}
+.bar{height:6px;border-radius:6px;background:rgba(255,255,255,.08);margin-top:12px;overflow:hidden}
+.bar i{display:block;height:100%;width:0;border-radius:6px;background:linear-gradient(90deg,var(--accent),var(--ok));animation:bar 7s infinite}
+@keyframes bar{0%{width:0}62%,92%{width:100%}100%{width:0}}
+.ia-ok{margin-top:14px;text-align:center;font-weight:700;font-size:14px;color:var(--ok);opacity:0;animation:ok 7s infinite}
+@keyframes ok{0%,62%{opacity:0}68%,92%{opacity:1}100%{opacity:0}}
+
+/* seletor mensal/anual */
+.periodo{display:inline-flex;gap:4px;padding:5px;margin-top:30px;border-radius:999px;background:var(--glass);border:1px solid var(--line)}
+.periodo button{border:0;cursor:pointer;background:transparent;color:var(--ink2);font:700 15px Inter,sans-serif;padding:11px 22px;border-radius:999px;display:inline-flex;align-items:center;gap:8px}
+.periodo button.on{background:#fff;color:#140e22}
+.eco{font-size:11.5px;font-weight:700;padding:3px 8px;border-radius:999px;background:var(--ok);color:#06281e}
+.oferta[data-periodo="anual"] .p-mensal,.oferta[data-periodo="anual"] .p-mensal-i,
+.oferta[data-periodo="mensal"] .p-anual,.oferta[data-periodo="mensal"] .p-anual-i{display:none}
+.preco .de{font-size:14px}
+.ia-box{display:flex;gap:10px;margin-top:18px;padding:14px 16px;border-radius:14px;background:linear-gradient(90deg,rgba(255,109,41,.16),rgba(155,92,255,.12));border:1px solid rgba(255,109,41,.4);font-size:14.5px;color:var(--ink2)}
+.ia-box svg{flex:none;width:20px;height:20px;color:#ffa26f;margin-top:1px}
+.ia-box b{color:var(--ink)}
+.upsell{display:flex;gap:10px;margin-top:18px;padding:14px 16px;border-radius:14px;background:rgba(155,92,255,.1);border:1px dashed rgba(155,92,255,.5);text-decoration:none;font-size:14px;color:var(--ink2);transition:background .2s}
+.upsell:hover{background:rgba(155,92,255,.18)}
+.upsell svg{flex:none;width:18px;height:18px;color:var(--accent2);margin-top:2px}
+.upsell b{color:var(--accent2);display:block}
+.ancora{margin:26px auto 0;color:var(--ink2);font-size:16px}
+.ancora b{color:var(--ink)}
+.offer.pulse{animation:pulse 1.2s}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(155,92,255,.8)}100%{box-shadow:0 0 0 22px rgba(155,92,255,0)}}
+
+/* tabela comparativa */
+.tabela{max-width:760px;margin:40px auto 0;border-radius:var(--r);border:1px solid var(--line);overflow:hidden;text-align:left;background:var(--panel)}
+.tr{display:grid;grid-template-columns:1fr 110px 110px;align-items:center;border-top:1px solid var(--line);padding:13px 18px;font-size:15px;color:var(--ink2)}
+.tr:first-child{border-top:0}
+.tr > span:not(:first-child){display:flex;justify-content:center;font-weight:700;color:var(--ink);text-align:center}
+.tr svg{width:20px;height:20px;color:var(--ok)}.tr svg.no{color:#ff7a8c}
+.tr small{display:block;font-size:12.5px;color:var(--ink3);font-weight:400}
+.tr i{font-style:normal}
+.th{background:rgba(255,255,255,.04);font-weight:700;color:var(--ink)}
+.th span:last-child{color:var(--accent2)}
+.destaque-ia{background:linear-gradient(90deg,rgba(255,109,41,.1),rgba(155,92,255,.08))}
+.destaque-ia b{color:var(--ink)}
+.preco-row{font-weight:700;color:var(--ink)}
+
 /* faq */
 .faq{max-width:760px;margin:40px auto 0}
 details{border-bottom:1px solid var(--line)}
@@ -233,7 +307,9 @@ footer a{color:var(--ink2);text-decoration:none}
   .hero .copy{text-align:center}.hero .lead{margin-left:auto;margin-right:auto}
   .hero .micro,.pills{justify-content:center}
   .facts .wrap{grid-template-columns:repeat(2,1fr)}
-  .dores,.passos,.comp,.planos{grid-template-columns:1fr}
+  .dores,.passos,.comp,.planos,.ia-grid{grid-template-columns:1fr}
+  .ia-grid{gap:40px}
+  .hero h1 br{display:none}
   .offer.top{transform:none;order:-1}
   .bento{grid-template-columns:1fr}.card,.card.big{grid-column:auto}
   .quem{grid-template-columns:1fr 1fr}
@@ -246,6 +322,9 @@ footer a{color:var(--ink2);text-decoration:none}
 @media (max-width:520px){
   .quem{grid-template-columns:1fr}
   .offer{padding:26px 20px}
+  .tr{grid-template-columns:1fr 74px 84px;padding:12px 12px;font-size:14px}
+  .periodo button{padding:10px 14px}
+  .so-completo.abs{position:static;margin-bottom:12px}
   .planos{max-width:560px}
   .garantia{flex-direction:column;text-align:center}
   .float{font-size:11.5px;padding:8px 10px}
@@ -279,7 +358,7 @@ footer a{color:var(--ink2);text-decoration:none}
 <header class="nav" id="nav">
   <div class="wrap">
     <a class="marca" href="#topo" aria-label="Meu Editor"><i><svg><use href="#i-cut"/></svg></i>Meu Editor</a>
-    <a class="btn sm" data-checkout href="#oferta">Quero o Meu Editor</a>
+    <a class="btn sm" data-checkout href="#oferta">Ver planos</a>
   </div>
 </header>
 
@@ -290,13 +369,13 @@ footer a{color:var(--ink2);text-decoration:none}
   <div class="wrap">
     <div class="copy">
       <div class="eyebrow">Editor de vídeo para Reels e anúncios</div>
-      <h1>Seu Reels editado, legendado e <span class="script">pronto</span> para postar.</h1>
-      <p class="lead">Grave, coloque no Meu Editor e deixe a IA fazer a primeira edição: cortes, legenda com estilo, animações de texto e efeitos sonoros. Você só ajusta o que quiser e exporta. Direto do celular.</p>
+      <h1>Você grava.<br>A IA <span class="script">edita.</span><br>Você só posta.</h1>
+      <p class="lead">O Meu Editor transforma seu vídeo bruto num Reels pronto para postar: a IA monta a edição com cortes, legenda com estilo, textos animados, zoom e efeitos sonoros. Você ajusta o que quiser e exporta, direto do celular.</p>
       <div class="ctas">
-        <a class="btn" data-checkout href="#oferta">Quero editar meus vídeos <svg><use href="#i-arrow"/></svg></a>
+        <a class="btn" data-checkout href="#oferta">Quero a IA editando meus vídeos <svg><use href="#i-arrow"/></svg></a>
         <div class="micro">
           <span><svg><use href="#i-check"/></svg>iPhone, Android e computador</span>
-          <span><svg><use href="#i-check"/></svg>Nada para baixar da loja</span>
+          <span><svg><use href="#i-check"/></svg>Planos a partir de R$ 9,90/mês</span>
           <span><svg><use href="#i-check"/></svg>Garantia de 7 dias</span>
         </div>
       </div>
@@ -365,8 +444,44 @@ footer a{color:var(--ink2);text-decoration:none}
     <h2 class="h2 rv">Do vídeo bruto ao Reels pronto em 3 passos.</h2>
     <div class="passos" style="text-align:left">
       <div class="passo rv"><h3>Adicione seus vídeos</h3><p>Escolha um ou mais vídeos da galeria do celular ou do computador. Eles ficam no seu aparelho.</p></div>
-      <div class="passo rv"><h3>Toque em Editar com IA</h3><p>Diga se é um Reels ou um anúncio e qual o objetivo. A IA monta a edição: cortes, legenda, textos, zoom e sons.</p></div>
+      <div class="passo rv"><h3>Toque em Editar com IA</h3><p>Diga se é um Reels ou um anúncio e qual o objetivo. A IA monta a edição: cortes, legenda, textos, zoom e sons. <span class="so-completo">Plano Completo</span></p></div>
       <div class="passo rv"><h3>Ajuste e exporte</h3><p>Mude o que quiser com o dedo, na linha do tempo. Depois é só exportar em MP4 e postar.</p></div>
+    </div>
+  </div>
+</section>
+
+
+<!-- IA: EXCLUSIVO DO COMPLETO -->
+<section class="ia-sec" id="ia">
+  <div class="wrap ia-grid">
+    <div>
+      <div class="badge-ia"><svg><use href="#i-spark"/></svg>Exclusivo do plano Completo</div>
+      <h2 class="h2 rv">A edição com IA faz em minutos o que levaria a sua tarde.</h2>
+      <p class="lead rv">Você conta o que quer (Reels ou anúncio, venda, crescimento, autoridade, leads…) e a IA entrega a primeira versão editada, já com a cara da sua marca. Você só revisa e posta.</p>
+      <ul class="ia-list rv">
+        <li><svg><use href="#i-check"/></svg><span><b>Edição montada para o seu objetivo:</b> um Reels de venda não é editado como um de autoridade.</span></li>
+        <li><svg><use href="#i-check"/></svg><span><b>Com a identidade da sua marca:</b> cores e fontes do seu kit, em todo vídeo.</span></li>
+        <li><svg><use href="#i-check"/></svg><span><b>Legenda, textos, zoom e sons</b> colocados nos momentos certos da fala.</span></li>
+        <li><svg><use href="#i-check"/></svg><span><b>Você continua no controle:</b> tudo que a IA fez pode ser ajustado com o dedo.</span></li>
+      </ul>
+      <div class="ia-aviso rv"><svg><use href="#i-spark"/></svg><p><b>Importante:</b> a edição com IA está disponível <b>somente no plano Completo</b>. O plano Essencial tem o editor e a legenda automática, mas toda a edição é feita por você.</p></div>
+      <a class="btn" href="#oferta" data-ir="completo">Quero o plano Completo, com IA <svg><use href="#i-arrow"/></svg></a>
+    </div>
+    <div class="ia-demo rv" aria-hidden="true">
+      <div class="ia-head"><span><svg><use href="#i-spark"/></svg>Editar com IA</span><em>Completo</em></div>
+      <div class="ia-lbl">Formato</div>
+      <div class="ia-chips"><span class="on">Reels</span><span>Anúncio</span></div>
+      <div class="ia-lbl">Objetivo</div>
+      <div class="ia-chips"><span class="on">Venda</span><span>Crescimento</span><span>Seguidores</span><span>Autoridade</span></div>
+      <div class="ia-run">
+        <div class="st s1"><svg><use href="#i-check"/></svg>Entendendo a fala</div>
+        <div class="st s2"><svg><use href="#i-check"/></svg>Cortando pausas</div>
+        <div class="st s3"><svg><use href="#i-check"/></svg>Gerando a legenda</div>
+        <div class="st s4"><svg><use href="#i-check"/></svg>Aplicando o kit da marca</div>
+        <div class="st s5"><svg><use href="#i-check"/></svg>Zoom e efeitos sonoros</div>
+        <div class="bar"><i></i></div>
+      </div>
+      <div class="ia-ok">Primeira edição pronta</div>
     </div>
   </div>
 </section>
@@ -379,6 +494,7 @@ footer a{color:var(--ink2);text-decoration:none}
     <p class="lead rv">Ferramentas de editor profissional, num app simples o bastante para usar no celular.</p>
     <div class="bento">
       <div class="card big destaque rv">
+        <span class="so-completo abs">Só no Completo</span>
         <div class="ic"><svg><use href="#i-spark"/></svg></div>
         <h3>Editar com IA</h3>
         <p>Escolha entre Reels ou Anúncio, marque o objetivo (venda, crescimento, autoridade, leads…) e a IA entrega a primeira versão editada, usando as cores e fontes da sua marca.</p>
@@ -458,7 +574,7 @@ footer a{color:var(--ink2);text-decoration:none}
       <div class="col sim rv">
         <h3>Com o Meu Editor</h3>
         <ul>
-          <li><svg><use href="#i-check"/></svg>A IA faz a primeira edição por você</li>
+          <li><svg><use href="#i-check"/></svg>A IA faz a primeira edição por você (plano Completo)</li>
           <li><svg><use href="#i-check"/></svg>Legenda com estilo em um toque</li>
           <li><svg><use href="#i-check"/></svg>Sons, transições e 243 animações no mesmo lugar</li>
           <li><svg><use href="#i-check"/></svg>Edita no celular, onde você grava</li>
@@ -470,17 +586,26 @@ footer a{color:var(--ink2);text-decoration:none}
 </section>
 
 <!-- OFERTA -->
-<section class="oferta" id="oferta">
+<section class="oferta" id="oferta" data-periodo="anual">
   <div class="wrap center">
-    <div class="eyebrow">Acesso</div>
-    <h2 class="h2 rv">Um ano de Reels prontos por menos de R$ 9 por mês.</h2>
-    <p class="lead rv">Escolha seu plano anual. Você recebe o acesso no e-mail logo depois da compra e já pode abrir no celular.</p>
+    <div class="eyebrow">Planos</div>
+    <h2 class="h2 rv">Escolha como você quer editar.</h2>
+    <p class="lead rv">Os dois planos têm o editor completo. <b class="hl">Só o Completo tem a IA que edita por você.</b></p>
+
+    <div class="periodo" role="group" aria-label="Forma de pagamento">
+      <button type="button" data-set="mensal">Mensal</button>
+      <button type="button" data-set="anual" class="on">Anual <span class="eco">Economize até 59%</span></button>
+    </div>
+
     <div class="planos">
       <div class="offer rv" style="text-align:left">
         <span class="tag tag-sec">Essencial</span>
         <h3>Meu Editor Essencial</h3>
-        <p class="psub">O editor completo para você editar na mão, com legenda automática.</p>
-        <div class="preco"><div class="por"><small>R$</small> 49,90<small>/ano</small></div><div class="obs">equivale a R$ 4,16 por mês</div></div>
+        <p class="psub">Para quem quer editar tudo na mão, com legenda automática.</p>
+        <div class="preco">
+          <div class="p-anual"><div class="de">R$ 118,80/ano no mensal</div><div class="por"><small>R$</small> 67<small>/ano</small></div><div class="obs">equivale a R$ 5,58 por mês · economize R$ 51,80</div></div>
+          <div class="p-mensal"><div class="por"><small>R$</small> 9,90<small>/mês</small></div><div class="obs">cancele quando quiser</div></div>
+        </div>
         <a class="btn full sec" data-plano="essencial" href="#oferta">Quero o Essencial <svg><use href="#i-arrow"/></svg></a>
         <ul>
           <li><svg><use href="#i-check"/></svg><span><b>Legenda automática</b> com modelos de texto prontos</span></li>
@@ -490,32 +615,56 @@ footer a{color:var(--ink2);text-decoration:none}
           <li><svg><use href="#i-check"/></svg><span><b>Galeria de projetos</b> salvos na sua conta</span></li>
           <li><svg><use href="#i-check"/></svg><span>iPhone, Android e computador</span></li>
           <li class="fora"><svg class="no"><use href="#i-x"/></svg><span>Editar com IA</span></li>
+          <li class="fora"><svg class="no"><use href="#i-x"/></svg><span>Edição automática com o kit da marca</span></li>
         </ul>
+        <a class="upsell" href="#oferta" data-ir="completo"><svg><use href="#i-spark"/></svg><span>Quer que a IA edite por você? <b class="p-anual-i">Por só R$ 2,50 a mais por mês, leve o Completo.</b><b class="p-mensal-i">Por só R$ 10 a mais por mês, leve o Completo.</b></span></a>
       </div>
-      <div class="offer top rv" style="text-align:left">
-        <span class="tag">Mais escolhido</span>
+
+      <div class="offer top rv" id="plano-completo" style="text-align:left">
+        <span class="tag">Mais escolhido · Com IA</span>
         <h3>Meu Editor Completo</h3>
-        <p class="psub">Tudo do Essencial, e a IA faz a primeira edição por você.</p>
-        <div class="preco"><div class="por"><small>R$</small> 97<small>/ano</small></div><div class="obs">equivale a R$ 8,08 por mês</div></div>
+        <p class="psub">Tudo do Essencial e a IA que monta a edição por você.</p>
+        <div class="preco">
+          <div class="p-anual"><div class="de">R$ 238,80/ano no mensal</div><div class="por"><small>R$</small> 97<small>/ano</small></div><div class="obs">equivale a R$ 8,08 por mês · <b class="verde">economize R$ 141,80</b></div></div>
+          <div class="p-mensal"><div class="por"><small>R$</small> 19,90<small>/mês</small></div><div class="obs">cancele quando quiser · no anual sai R$ 8,08/mês</div></div>
+        </div>
         <a class="btn full" data-plano="completo" href="#oferta">Quero o Completo <svg><use href="#i-arrow"/></svg></a>
+        <div class="ia-box"><svg><use href="#i-spark"/></svg><span><b>Editar com IA</b> exclusivo deste plano: a IA corta, legenda, anima e sonoriza seu vídeo para o objetivo que você escolher.</span></div>
         <ul>
           <li><svg><use href="#i-check"/></svg><span><b>Tudo do plano Essencial</b></span></li>
           <li><svg><use href="#i-check"/></svg><span><b>Editar com IA</b> para Reels e anúncios</span></li>
+          <li><svg><use href="#i-check"/></svg><span><b>Edição pelo objetivo:</b> venda, crescimento, autoridade, leads…</span></li>
           <li><svg><use href="#i-check"/></svg><span><b>Kit da marca</b>: a IA edita com suas cores e fontes</span></li>
-          <li><svg><use href="#i-check"/></svg><span>Cortes, legenda, textos, zoom e sons montados pela IA</span></li>
           <li><svg><use href="#i-check"/></svg><span><b>Atualizações</b> com recursos novos</span></li>
         </ul>
       </div>
     </div>
+
+    <p class="ancora rv"><span class="p-anual-i">No Completo anual, são <b>menos de R$ 0,27 por dia</b> para ter a IA editando seus vídeos.</span><span class="p-mensal-i">Dica: no plano anual você paga <b>menos da metade</b> por mês.</span></p>
+
     <div class="pagto">
       <span><svg><use href="#i-lock"/></svg>Pagamento seguro</span>
       <span><svg><use href="#i-pix"/></svg>Pix</span>
       <span><svg><use href="#i-card"/></svg>Cartão de crédito</span>
-      <span><svg><use href="#i-clock"/></svg>Acesso por 12 meses</span>
+      <span><svg><use href="#i-clock"/></svg>Acesso imediato</span>
     </div>
+
+    <div class="tabela rv">
+      <div class="tr th"><span>Compare os planos</span><span>Essencial</span><span>Completo</span></div>
+      <div class="tr destaque-ia"><span><b>Editar com IA</b><small>a IA monta a edição por você</small></span><span><svg class="no"><use href="#i-x"/></svg></span><span><svg><use href="#i-check"/></svg></span></div>
+      <div class="tr destaque-ia"><span><b>Edição pelo objetivo e kit da marca</b><small>venda, crescimento, autoridade, leads…</small></span><span><svg class="no"><use href="#i-x"/></svg></span><span><svg><use href="#i-check"/></svg></span></div>
+      <div class="tr"><span>Legenda automática</span><span><svg><use href="#i-check"/></svg></span><span><svg><use href="#i-check"/></svg></span></div>
+      <div class="tr"><span>243 animações de texto</span><span><svg><use href="#i-check"/></svg></span><span><svg><use href="#i-check"/></svg></span></div>
+      <div class="tr"><span>Efeitos sonoros e transições</span><span><svg><use href="#i-check"/></svg></span><span><svg><use href="#i-check"/></svg></span></div>
+      <div class="tr"><span>Zoom, keyframes e camadas</span><span><svg><use href="#i-check"/></svg></span><span><svg><use href="#i-check"/></svg></span></div>
+      <div class="tr"><span>Suas fontes e galeria de projetos</span><span><svg><use href="#i-check"/></svg></span><span><svg><use href="#i-check"/></svg></span></div>
+      <div class="tr"><span>iPhone, Android e computador</span><span><svg><use href="#i-check"/></svg></span><span><svg><use href="#i-check"/></svg></span></div>
+      <div class="tr preco-row"><span>Preço</span><span><i class="p-anual-i">R$ 67/ano</i><i class="p-mensal-i">R$ 9,90/mês</i></span><span><i class="p-anual-i">R$ 97/ano</i><i class="p-mensal-i">R$ 19,90/mês</i></span></div>
+    </div>
+
     <div class="garantia rv" style="text-align:left">
       <div class="selo">7<small>DIAS</small></div>
-      <p><b>Garantia incondicional de 7 dias.</b> Teste o Meu Editor nos seus vídeos. Se não for para você, peça o reembolso dentro de 7 dias e devolvemos 100% do valor, sem perguntas.</p>
+      <p><b>Garantia incondicional de 7 dias.</b> Assine, teste o Meu Editor nos seus próprios vídeos e, se não for para você, peça o reembolso em até 7 dias. Devolvemos 100% do valor, sem perguntas. O risco é todo nosso.</p>
     </div>
   </div>
 </section>
@@ -531,8 +680,10 @@ footer a{color:var(--ink2);text-decoration:none}
       <details><summary>Como recebo o acesso?</summary><p>Logo após a compra aprovada você recebe um e-mail com o link para criar sua senha. É só entrar com seu e-mail e senha e começar a editar.</p></details>
       <details><summary>Meus vídeos ficam expostos?</summary><p>Não. Os vídeos que você adiciona ficam no seu aparelho, e os projetos salvos ficam na sua conta, que só você acessa com e-mail e senha.</p></details>
       <details><summary>Em que formato o vídeo é exportado?</summary><p>Em MP4 vertical (9:16), pronto para Instagram, TikTok, YouTube Shorts e anúncios.</p></details>
-      <details><summary>Qual a diferença entre os planos?</summary><p>Os dois têm o editor completo: legenda automática, animações de texto, efeitos sonoros, zoom, camadas e galeria de projetos. O Completo inclui o botão Editar com IA, que monta a primeira edição do vídeo para você.</p></details>
-      <details><summary>Por quanto tempo vale o acesso?</summary><p>Os dois planos são anuais: você paga uma vez e usa por 12 meses, com todas as atualizações do período.</p></details>
+      <details><summary>Qual a diferença entre o Essencial e o Completo?</summary><p>Os dois têm o editor completo: legenda automática, animações de texto, efeitos sonoros, zoom, camadas e galeria de projetos. <b>A edição com IA existe somente no Completo</b>: é ela que monta a primeira edição do vídeo para você, de acordo com o objetivo e o kit da sua marca. No Essencial, você faz toda a edição na mão.</p></details>
+      <details><summary>A IA faz o vídeo sozinha?</summary><p>Ela faz a primeira edição completa do seu vídeo gravado: cortes, legenda, textos, zoom e sons. Depois você revisa e ajusta o que quiser antes de exportar. Você economiza o trabalho pesado e mantém a palavra final.</p></details>
+      <details><summary>Qual a diferença entre pagar mensal e anual?</summary><p>No mensal você paga todo mês e pode cancelar quando quiser. No anual você paga uma vez, usa por 12 meses e economiza: o Completo sai por R$ 8,08 por mês, em vez de R$ 19,90.</p></details>
+      <details><summary>Posso cancelar o plano mensal?</summary><p>Sim. O plano mensal não tem fidelidade: você cancela quando quiser, sem multa.</p></details>
       <details><summary>E se eu não gostar?</summary><p>Você tem 7 dias de garantia. Se não gostar, pede o reembolso e recebe 100% do valor de volta.</p></details>
     </div>
   </div>
@@ -543,9 +694,9 @@ footer a{color:var(--ink2);text-decoration:none}
   <div class="wrap">
     <div class="box rv">
       <h2>Seu próximo Reels pode ficar <span class="script">pronto</span> hoje.</h2>
-      <p class="lead">Pare de adiar o conteúdo por causa da edição. Grave, coloque no Meu Editor e poste.</p>
+      <p class="lead">Pare de adiar o conteúdo por causa da edição. Você grava, a IA edita, você posta.</p>
       <a class="btn" data-checkout href="#oferta">Quero o Meu Editor <svg><use href="#i-arrow"/></svg></a>
-      <div class="micro" style="justify-content:center"><span><svg><use href="#i-check"/></svg>Acesso imediato</span><span><svg><use href="#i-check"/></svg>Garantia de 7 dias</span></div>
+      <div class="micro" style="justify-content:center"><span><svg><use href="#i-check"/></svg>Planos a partir de R$ 9,90/mês</span><span><svg><use href="#i-check"/></svg>IA no plano Completo</span><span><svg><use href="#i-check"/></svg>Garantia de 7 dias</span></div>
     </div>
   </div>
 </section>
@@ -559,29 +710,46 @@ footer a{color:var(--ink2);text-decoration:none}
   </div>
 </footer>
 
-<div class="sticky-cta" id="sticky"><a class="btn" data-checkout href="#oferta">Quero o Meu Editor <svg><use href="#i-arrow"/></svg></a></div>
+<div class="sticky-cta" id="sticky"><a class="btn" data-checkout href="#oferta">Ver planos · a partir de R$ 9,90 <svg><use href="#i-arrow"/></svg></a></div>
 
 <script>
 /* ===== CONFIGURAÇÃO DA OFERTA =====
-   Cole o link do checkout (Kiwify) de cada plano. Enquanto estiver vazio, o botão fica na seção de oferta.
+   Cole o link do checkout (Kiwify) de cada plano e período. Enquanto estiver vazio, o botão fica na seção de planos.
    Os outros botões da página levam até a seção de planos. */
 const CHECKOUT = {
-  essencial: '',   // R$ 49,90/ano
-  completo: ''     // R$ 97/ano
+  essencial: { mensal: '', anual: '' },   // R$ 9,90/mês · R$ 67/ano
+  completo:  { mensal: '', anual: '' }    // R$ 19,90/mês · R$ 97/ano
 };
 
 (function () {
-  // botões dos planos: vão para o checkout levando as UTMs da página
   const utm = location.search.replace(/^\?/, '');
-  document.querySelectorAll('[data-plano]').forEach((a) => {
-    const url = CHECKOUT[a.dataset.plano];
-    if (url) { a.href = url + (utm ? (url.includes('?') ? '&' : '?') + utm : ''); a.rel = 'noopener'; }
-  });
+  const oferta = document.getElementById('oferta');
+
+  // mensal / anual: troca preços e links dos botões dos planos
+  function periodo(p) {
+    oferta.dataset.periodo = p;
+    document.querySelectorAll('.periodo button').forEach((b) => b.classList.toggle('on', b.dataset.set === p));
+    document.querySelectorAll('[data-plano]').forEach((a) => {
+      const url = (CHECKOUT[a.dataset.plano] || {})[p];
+      if (url) { a.href = url + (utm ? (url.includes('?') ? '&' : '?') + utm : ''); a.rel = 'noopener'; }
+      else { a.href = '#oferta'; a.removeAttribute('rel'); }
+    });
+  }
+  document.querySelectorAll('.periodo button').forEach((b) => b.onclick = () => periodo(b.dataset.set));
+  periodo('anual');
+
+  // "leve o Completo": rola até o plano e destaca
+  document.querySelectorAll('[data-ir="completo"]').forEach((a) => a.addEventListener('click', (e) => {
+    e.preventDefault();
+    const c = document.getElementById('plano-completo');
+    c.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    c.classList.remove('pulse'); void c.offsetWidth; c.classList.add('pulse');
+  }));
 
   document.getElementById('ano').textContent = new Date().getFullYear();
 
   // topo com borda ao rolar + barra fixa no celular (some quando a oferta está na tela)
-  const nav = document.getElementById('nav'), sticky = document.getElementById('sticky'), oferta = document.getElementById('oferta');
+  const nav = document.getElementById('nav'), sticky = document.getElementById('sticky');
   let ofertaVisivel = false;
   new IntersectionObserver(([e]) => { ofertaVisivel = e.isIntersecting; onScroll(); }, { threshold: .15 }).observe(oferta);
   function onScroll() {
