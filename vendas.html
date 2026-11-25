@@ -169,19 +169,28 @@ section{padding:96px 0}
 /* oferta */
 .oferta{position:relative}
 .oferta::before{content:"";position:absolute;inset:0;background:radial-gradient(50% 50% at 50% 50%,rgba(155,92,255,.2),transparent 70%);pointer-events:none;z-index:-1}
-.offer{max-width:560px;margin:44px auto 0;padding:36px;border-radius:30px;background:linear-gradient(170deg,#21143d,#120c1e);border:1px solid rgba(155,92,255,.5);box-shadow:0 30px 80px rgba(0,0,0,.5),0 0 60px rgba(139,80,255,.2)}
+.planos{display:grid;grid-template-columns:1fr 1fr;gap:20px;max-width:900px;margin:44px auto 0;align-items:start}
+.offer{padding:36px;border-radius:30px;background:linear-gradient(170deg,#21143d,#120c1e);border:1px solid rgba(155,92,255,.5);box-shadow:0 30px 80px rgba(0,0,0,.5),0 0 60px rgba(139,80,255,.2)}
+.offer:not(.top){background:var(--panel);border-color:var(--line);box-shadow:none}
+.offer.top{transform:translateY(-10px)}
+.offer .tag.tag-sec{background:rgba(255,255,255,.1)}
+.psub{color:var(--ink2);font-size:15px;margin:6px 0 0}
+.btn.sec{background:rgba(255,255,255,.08);box-shadow:inset 0 0 0 1px rgba(255,255,255,.18)}
+.btn.sec:hover{background:rgba(255,255,255,.14);box-shadow:inset 0 0 0 1px rgba(255,255,255,.3)}
+.offer li.fora{color:var(--ink3);text-decoration:line-through}
+.offer li svg.no{color:#ff7a8c}
 .offer .tag{display:inline-block;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;background:var(--logo);padding:6px 12px;border-radius:999px;margin-bottom:18px}
 .offer h3{font-size:26px}
-.offer ul{list-style:none;padding:0;margin:22px 0}
+.offer ul{list-style:none;padding:0;margin:20px 0 0}
 .offer li{display:flex;gap:10px;padding:8px 0;color:var(--ink2)}
 .offer li svg{flex:none;width:20px;height:20px;color:var(--ok);margin-top:2px}
 .offer li b{color:var(--ink)}
-.preco{margin:6px 0 22px;text-align:center}
+.preco{margin:20px 0 18px}
 .preco .de{color:var(--ink3);text-decoration:line-through;font-size:16px}
 .preco .por{font:800 46px/1.1 Poppins,sans-serif}
 .preco .por small{font-size:20px;font-weight:700}
 .preco .obs{color:var(--ink3);font-size:14px}
-.pagto{display:flex;justify-content:center;flex-wrap:wrap;gap:8px 16px;margin-top:16px;font-size:13px;color:var(--ink3)}
+.pagto{display:flex;justify-content:center;flex-wrap:wrap;gap:8px 18px;margin-top:22px;font-size:13px;color:var(--ink3)}
 .pagto span{display:inline-flex;align-items:center;gap:6px}
 .pagto svg{width:15px;height:15px}
 .garantia{display:flex;gap:18px;align-items:center;max-width:560px;margin:22px auto 0;padding:22px;border-radius:var(--r);background:var(--glass);border:1px solid var(--line)}
@@ -224,7 +233,8 @@ footer a{color:var(--ink2);text-decoration:none}
   .hero .copy{text-align:center}.hero .lead{margin-left:auto;margin-right:auto}
   .hero .micro,.pills{justify-content:center}
   .facts .wrap{grid-template-columns:repeat(2,1fr)}
-  .dores,.passos,.comp{grid-template-columns:1fr}
+  .dores,.passos,.comp,.planos{grid-template-columns:1fr}
+  .offer.top{transform:none;order:-1}
   .bento{grid-template-columns:1fr}.card,.card.big{grid-column:auto}
   .quem{grid-template-columns:1fr 1fr}
   .phone{width:min(290px,76vw)}
@@ -236,6 +246,7 @@ footer a{color:var(--ink2);text-decoration:none}
 @media (max-width:520px){
   .quem{grid-template-columns:1fr}
   .offer{padding:26px 20px}
+  .planos{max-width:560px}
   .garantia{flex-direction:column;text-align:center}
   .float{font-size:11.5px;padding:8px 10px}
 }
@@ -462,28 +473,45 @@ footer a{color:var(--ink2);text-decoration:none}
 <section class="oferta" id="oferta">
   <div class="wrap center">
     <div class="eyebrow">Acesso</div>
-    <h2 class="h2 rv">Comece a editar hoje.</h2>
-    <p class="lead rv">Você recebe o acesso no e-mail logo depois da compra e já pode abrir no celular.</p>
-    <div class="offer rv" style="text-align:left">
-      <span class="tag">Meu Editor</span>
-      <h3>Acesso ao Meu Editor</h3>
-      <ul>
-        <li><svg><use href="#i-check"/></svg><span><b>Editar com IA</b> para Reels e anúncios</span></li>
-        <li><svg><use href="#i-check"/></svg><span><b>Legenda automática</b> com modelos de texto prontos</span></li>
-        <li><svg><use href="#i-check"/></svg><span><b>243 animações de texto</b> e suas próprias fontes</span></li>
-        <li><svg><use href="#i-check"/></svg><span><b>Biblioteca de efeitos sonoros</b> e transições</span></li>
-        <li><svg><use href="#i-check"/></svg><span><b>Zoom, keyframes, camadas</b> e velocidade do clipe</span></li>
-        <li><svg><use href="#i-check"/></svg><span><b>Galeria de projetos</b> salvos na sua conta</span></li>
-        <li><svg><use href="#i-check"/></svg><span>Funciona no <b>iPhone, Android e computador</b></span></li>
-        <li><svg><use href="#i-check"/></svg><span><b>Atualizações</b> com recursos novos</span></li>
-      </ul>
-      <div class="preco" id="preco"></div>
-      <a class="btn full" data-checkout href="#oferta">Quero meu acesso agora <svg><use href="#i-arrow"/></svg></a>
-      <div class="pagto">
-        <span><svg><use href="#i-lock"/></svg>Pagamento seguro</span>
-        <span><svg><use href="#i-pix"/></svg>Pix</span>
-        <span><svg><use href="#i-card"/></svg>Cartão de crédito</span>
+    <h2 class="h2 rv">Um ano de Reels prontos por menos de R$ 9 por mês.</h2>
+    <p class="lead rv">Escolha seu plano anual. Você recebe o acesso no e-mail logo depois da compra e já pode abrir no celular.</p>
+    <div class="planos">
+      <div class="offer rv" style="text-align:left">
+        <span class="tag tag-sec">Essencial</span>
+        <h3>Meu Editor Essencial</h3>
+        <p class="psub">O editor completo para você editar na mão, com legenda automática.</p>
+        <div class="preco"><div class="por"><small>R$</small> 49,90<small>/ano</small></div><div class="obs">equivale a R$ 4,16 por mês</div></div>
+        <a class="btn full sec" data-plano="essencial" href="#oferta">Quero o Essencial <svg><use href="#i-arrow"/></svg></a>
+        <ul>
+          <li><svg><use href="#i-check"/></svg><span><b>Legenda automática</b> com modelos de texto prontos</span></li>
+          <li><svg><use href="#i-check"/></svg><span><b>243 animações de texto</b> e suas próprias fontes</span></li>
+          <li><svg><use href="#i-check"/></svg><span><b>Efeitos sonoros</b> e transições</span></li>
+          <li><svg><use href="#i-check"/></svg><span><b>Zoom, keyframes, camadas</b> e velocidade do clipe</span></li>
+          <li><svg><use href="#i-check"/></svg><span><b>Galeria de projetos</b> salvos na sua conta</span></li>
+          <li><svg><use href="#i-check"/></svg><span>iPhone, Android e computador</span></li>
+          <li class="fora"><svg class="no"><use href="#i-x"/></svg><span>Editar com IA</span></li>
+        </ul>
       </div>
+      <div class="offer top rv" style="text-align:left">
+        <span class="tag">Mais escolhido</span>
+        <h3>Meu Editor Completo</h3>
+        <p class="psub">Tudo do Essencial, e a IA faz a primeira edição por você.</p>
+        <div class="preco"><div class="por"><small>R$</small> 97<small>/ano</small></div><div class="obs">equivale a R$ 8,08 por mês</div></div>
+        <a class="btn full" data-plano="completo" href="#oferta">Quero o Completo <svg><use href="#i-arrow"/></svg></a>
+        <ul>
+          <li><svg><use href="#i-check"/></svg><span><b>Tudo do plano Essencial</b></span></li>
+          <li><svg><use href="#i-check"/></svg><span><b>Editar com IA</b> para Reels e anúncios</span></li>
+          <li><svg><use href="#i-check"/></svg><span><b>Kit da marca</b>: a IA edita com suas cores e fontes</span></li>
+          <li><svg><use href="#i-check"/></svg><span>Cortes, legenda, textos, zoom e sons montados pela IA</span></li>
+          <li><svg><use href="#i-check"/></svg><span><b>Atualizações</b> com recursos novos</span></li>
+        </ul>
+      </div>
+    </div>
+    <div class="pagto">
+      <span><svg><use href="#i-lock"/></svg>Pagamento seguro</span>
+      <span><svg><use href="#i-pix"/></svg>Pix</span>
+      <span><svg><use href="#i-card"/></svg>Cartão de crédito</span>
+      <span><svg><use href="#i-clock"/></svg>Acesso por 12 meses</span>
     </div>
     <div class="garantia rv" style="text-align:left">
       <div class="selo">7<small>DIAS</small></div>
@@ -499,10 +527,12 @@ footer a{color:var(--ink2);text-decoration:none}
     <div class="faq">
       <details><summary>Funciona no iPhone?</summary><p>Sim. O Meu Editor abre no Safari e você adiciona à tela de início com dois toques. Ele fica com ícone e abre em tela cheia, como um aplicativo. Também funciona no Android e no computador.</p></details>
       <details><summary>Preciso baixar algum aplicativo da loja?</summary><p>Não. O Meu Editor funciona direto no navegador. Não ocupa espaço como um app pesado e se atualiza sozinho quando sai recurso novo.</p></details>
-      <details><summary>Preciso saber editar vídeo?</summary><p>Não. O botão Editar com IA faz a primeira edição para você. Depois, os ajustes são feitos com o dedo, na linha do tempo, de forma simples.</p></details>
+      <details><summary>Preciso saber editar vídeo?</summary><p>Não. No plano Completo, o botão Editar com IA faz a primeira edição para você. Depois, os ajustes são feitos com o dedo, na linha do tempo, de forma simples.</p></details>
       <details><summary>Como recebo o acesso?</summary><p>Logo após a compra aprovada você recebe um e-mail com o link para criar sua senha. É só entrar com seu e-mail e senha e começar a editar.</p></details>
       <details><summary>Meus vídeos ficam expostos?</summary><p>Não. Os vídeos que você adiciona ficam no seu aparelho, e os projetos salvos ficam na sua conta, que só você acessa com e-mail e senha.</p></details>
       <details><summary>Em que formato o vídeo é exportado?</summary><p>Em MP4 vertical (9:16), pronto para Instagram, TikTok, YouTube Shorts e anúncios.</p></details>
+      <details><summary>Qual a diferença entre os planos?</summary><p>Os dois têm o editor completo: legenda automática, animações de texto, efeitos sonoros, zoom, camadas e galeria de projetos. O Completo inclui o botão Editar com IA, que monta a primeira edição do vídeo para você.</p></details>
+      <details><summary>Por quanto tempo vale o acesso?</summary><p>Os dois planos são anuais: você paga uma vez e usa por 12 meses, com todas as atualizações do período.</p></details>
       <details><summary>E se eu não gostar?</summary><p>Você tem 7 dias de garantia. Se não gostar, pede o reembolso e recebe 100% do valor de volta.</p></details>
     </div>
   </div>
@@ -533,30 +563,20 @@ footer a{color:var(--ink2);text-decoration:none}
 
 <script>
 /* ===== CONFIGURAÇÃO DA OFERTA =====
-   CHECKOUT: cole aqui o link do checkout (Kiwify). Enquanto estiver vazio, os botões levam para a seção de oferta.
-   PRECO / PRECO_DE / PARCELAS: textos do preço. Deixe PRECO vazio para esconder o bloco de preço. */
-const OFERTA = {
-  CHECKOUT: '',
-  PRECO: '',          // ex.: '97'
-  PRECO_DE: '',       // ex.: '197' (preço riscado, opcional)
-  PARCELAS: ''        // ex.: 'ou 12x de R$ 9,74'
+   Cole o link do checkout (Kiwify) de cada plano. Enquanto estiver vazio, o botão fica na seção de oferta.
+   Os outros botões da página levam até a seção de planos. */
+const CHECKOUT = {
+  essencial: '',   // R$ 49,90/ano
+  completo: ''     // R$ 97/ano
 };
 
 (function () {
-  // botões de compra: levam ao checkout (mantendo UTMs da página) ou à oferta
+  // botões dos planos: vão para o checkout levando as UTMs da página
   const utm = location.search.replace(/^\?/, '');
-  const link = OFERTA.CHECKOUT ? OFERTA.CHECKOUT + (utm ? (OFERTA.CHECKOUT.includes('?') ? '&' : '?') + utm : '') : '';
-  document.querySelectorAll('[data-checkout]').forEach((a) => {
-    if (link) { a.href = link; a.rel = 'noopener'; }
+  document.querySelectorAll('[data-plano]').forEach((a) => {
+    const url = CHECKOUT[a.dataset.plano];
+    if (url) { a.href = url + (utm ? (url.includes('?') ? '&' : '?') + utm : ''); a.rel = 'noopener'; }
   });
-
-  // preço
-  const p = document.getElementById('preco');
-  if (OFERTA.PRECO) {
-    p.innerHTML = (OFERTA.PRECO_DE ? `<div class="de">de R$ ${OFERTA.PRECO_DE}</div>` : '') +
-      `<div class="por"><small>R$</small> ${OFERTA.PRECO}</div>` +
-      (OFERTA.PARCELAS ? `<div class="obs">${OFERTA.PARCELAS}</div>` : '');
-  } else p.remove();
 
   document.getElementById('ano').textContent = new Date().getFullYear();
 
