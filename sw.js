@@ -1,5 +1,5 @@
 // Cache do app para abrir rápido e funcionar sem internet
-const CACHE = 'corte-v29';
+const CACHE = 'corte-v30';
 const ASSETS = ['./', 'index.html', 'instalar.html', 'styles.css', 'app.js', 'estilos.js', 'animacoes.js', 'conta.js', 'agente.js', 'textorico.js', 'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-180.png', 'icons/icon-512.png', 'sfx/filmburn.mp3', 'vendor/mp4box.all.min.js', 'vendor/mp4-muxer.min.js', 'sfx/lib/index.json'];
 
 self.addEventListener('install', (e) => {

@@ -2685,17 +2685,11 @@ function ensureCaptionVisible() {
   const r = clipAt(S.t); if (captionAt(S.t, r)) return;
   const sp = capSpans()[0]; if (sp) seekTo(sp.start + 0.01);
 }
+// Transcrição padrão para todos: pelo servidor do Meu Editor (Groq, Whisper large v3). Ninguém precisa de chave.
 function capGenHTML() {
-  if (prefs.groqKey || servidorLegenda) return `
+  return `
     <p class="note">Transcreve a fala com o modelo mais preciso (Whisper large v3), 4 palavras por bloco. Só a voz sai do aparelho, nunca o vídeo.</p>
     <button class="btn primary" id="gen">Gerar legendas</button>
-    <div class="progress"><div id="gen-bar"></div></div><p class="note" id="gen-st"></p>
-    ${prefs.groqKey ? '<button class="btn" id="key-change" style="font-weight:400;font-size:13px;background:none;color:var(--muted)">Trocar chave da Groq</button>' : ''}`;
-  return `
-    <div class="sec">Configuração (só na primeira vez)</div>
-    <p class="note">Cole aqui sua chave da Groq (começa com <b>gsk_</b>). Ela fica salva só neste aparelho.</p>
-    <div class="row"><input type="password" id="groq-key" placeholder="gsk_…" autocomplete="off" autocapitalize="off" spellcheck="false"></div>
-    <button class="btn primary" id="key-save">Salvar e gerar legendas</button>
     <div class="progress"><div id="gen-bar"></div></div><p class="note" id="gen-st"></p>`;
 }
 function bindCapGen(b) {
@@ -2705,20 +2699,13 @@ function bindCapGen(b) {
     try { await transcribeAll(st); st('Pronto! Confira e edite o texto na aba Texto.', 100); setTimeout(() => sheetKind === 'captions' && openCaptions('texto'), 900); }
     catch (e) {
       console.error(e);
-      if (e.precisaChave) { openCaptions('gerar'); return; }
+      if (e.precisaChave) { st('As legendas automáticas estão em manutenção. Tente de novo em alguns minutos.', 0); return; }
       if (/^cancelado/.test(e.message)) { st(e.message[0].toUpperCase() + e.message.slice(1) + '.', 0); return; }
-      if (/401|invalid_api_key/i.test(e.message)) { prefs.groqKey = ''; savePrefs(); openCaptions('gerar'); st('Essa chave não foi aceita pela Groq. Confira e cole de novo.', 0); return; }
+      if (/401|invalid_api_key/i.test(e.message) && prefs.groqKey) { prefs.groqKey = ''; savePrefs(); }
       st('Erro: ' + e.message, 0);
     } finally { btn.disabled = false; }
   };
   const gen = $('#gen', b); if (gen) gen.onclick = (e) => run(e.currentTarget);
-  const save = $('#key-save', b);
-  if (save) save.onclick = (e) => {
-    const k = $('#groq-key', b).value.trim();
-    if (!/^gsk_\w{20,}$/.test(k)) return st('A chave deve começar com gsk_ (copie ela inteira).', 0);
-    prefs.groqKey = k; savePrefs(); run(e.currentTarget);
-  };
-  const ch = $('#key-change', b); if (ch) ch.onclick = () => { prefs.groqKey = ''; savePrefs(); openCaptions('gerar'); };
 }
 const MAX_WORDS = 4;
 function buildCaptions(mediaId, words, maxW = MAX_WORDS) {
@@ -2767,8 +2754,8 @@ function encodeWav(pcm, sr) {
   for (let i = 0; i < pcm.length; i++) v.setInt16(44 + i * 2, clamp(pcm[i], -1, 1) * 0x7fff, true);
   return buf;
 }
-// Transcrição: primeiro pelo servidor do Meu Editor (o comprador não precisa de chave nenhuma);
-// só se o servidor ainda não estiver configurado é que usa a chave própria da Groq (se a pessoa tiver colado uma).
+// Transcrição: sempre pelo servidor do Meu Editor (o comprador não precisa de chave nenhuma).
+// Uma chave própria antiga, salva neste aparelho, só é usada se o servidor estiver fora do ar.
 let servidorLegenda = true;
 async function groqTranscribe(pcm, key) {
   const wav = new Blob([encodeWav(pcm, 16000)], { type: 'audio/wav' });
@@ -2777,7 +2764,7 @@ async function groqTranscribe(pcm, key) {
     const fd = new FormData(); fd.append('file', wav, 'audio.wav'); fd.append('language', 'pt');
     try { j = await (await sbReq('/functions/v1/transcrever', { method: 'POST', body: fd })).json(); }
     catch (e) {
-      if (e.codigo === 'transcricao_em_configuracao' || e.status === 404) servidorLegenda = false;
+      if (e.codigo === 'transcricao_em_configuracao' || e.status === 404) { if (!key) { const er = new Error('precisa_chave'); er.precisaChave = true; throw er; } }
       else if (e.status) throw new Error(e.message);
       else throw new Error('sem conexão com a internet');
     }
@@ -3560,7 +3547,7 @@ ensureFonts().then(draw);
 loadCustomFonts().then(() => { try { draw(); } catch {} });
 try { navigator.storage?.persist?.(); } catch {}
 // versão do app: aparece pequena ao lado do nome, para conferir se atualizou
-const APP_VERSION = 29;
+const APP_VERSION = 30;
 loadTemplateFonts().then(() => { try { draw(); } catch {} });
 { const b = document.querySelector('.brand-ver'); if (b) b.textContent = 'v' + APP_VERSION; }
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
