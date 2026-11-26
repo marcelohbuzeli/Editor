@@ -7,6 +7,7 @@ import { ANIM_GROUPS, presetsOf, presetByName, animLabel, SPLIT_LABEL, layerPhas
 import * as conta from './conta.js?v=25b';
 import { criarAgente } from './agente.js?v=26';
 import * as RT from './textorico.js?v=28';
+import { TRANSITIONS, TR_CATS, trById, drawTransition, drawFilmBurn, sampleFrames } from './transicoes.js?v=32';
 const seedOf = (id) => { let h = 7; for (const c of String(id)) h = (h * 31 + c.charCodeAt(0)) >>> 0; return h % 100000; };
 
 const $ = (s, el = document) => el.querySelector(s);
@@ -29,6 +30,9 @@ const ICONS = {
   volume: '<path d="M11 5 6 9H2v6h4l5 4V5z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M19 5a10 10 0 0 1 0 14"/>',
   scissors: '<circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4 8.12 15.88M14.47 14.48 20 20M8.12 8.12 12 12"/>',
   trash: '<path d="M3 6h18M19 6l-1 14H6L5 6M10 11v6M14 11v6M9 6V4h6v2"/>',
+  home: '<path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/>',
+  trans: '<rect x="3" y="5" width="11" height="14" rx="2"/><path d="M14 8h5a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-5"/><path d="M10 9l3 3-3 3"/>',
+  more: '<circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/>',
   left: '<path d="m15 18-6-6 6-6"/>',
   right: '<path d="m9 18 6-6-6-6"/>',
   x: '<path d="M18 6 6 18M6 6l12 12"/>',
@@ -141,7 +145,13 @@ function clipAt(t, L = layout()) {
   for (const r of L) if (t >= r.start && t < r.end) return r;
   return t >= L[L.length - 1].end ? L[L.length - 1] : L[0];
 }
-const cuts = (L = layout()) => L.filter((r) => r.i > 0 && r.clip.transition && r.clip.transition !== 'none').map((r) => ({ t: r.start, type: r.clip.transition, seed: r.i }));
+const cuts = (L = layout()) => L.filter((r) => r.i > 0 && r.clip.transition && r.clip.transition !== 'none').map((r) => ({ t: r.start, type: r.clip.transition, seed: r.i, dur: trDurOf(r, L), clip: r.clip }));
+// duração da transição do corte antes do clipe r (centrada no corte: metade em cada clipe, sem passar do tamanho deles)
+function trDurOf(r, L = layout()) {
+  const c = r.clip, tp = c.transition;
+  const d = c.trDur ?? (tp === 'flash' ? S.fx.flashDur : tp === 'burn' ? S.fx.burnDur : trById(tp)?.dur ?? 0.5);
+  const prev = L[r.i - 1]; return Math.max(0.1, Math.min(d, 2 * (r.end - r.start), prev ? 2 * (prev.end - prev.start) : d));
+}
 function capSpans(L = layout()) {
   const out = [];
   for (const c of S.captions) {
@@ -359,10 +369,7 @@ function scheduleAudio(fromT, dest, ctx = ac()) {
     const off = Math.max(0, fromT - tlStart); if (off >= len) return;
     add(snd.buf, gain, tlStart + off, snd.in + off, len - off);
   };
-  for (const ct of cuts(L)) {
-    if (ct.type === 'flash' && S.fx.click) sfx(transSound('flash'), dbToGain(S.fx.clickDb), ct.t);
-    if (ct.type === 'burn' && S.fx.burnSound) sfx(transSound('burn'), dbToGain(S.fx.burnDb), ct.t);
-  }
+  for (const ct of cuts(L)) sfx(soundFor(ct.clip), dbToGain(trDbOf(ct.clip)), ct.t);
   // som das camadas de vídeo (se o volume for maior que 0)
   for (const ly of S.layers) {
     if (ly.kind !== 'video' || !(ly.volume > 0 || hasKf(ly, 'vol'))) continue;
@@ -414,11 +421,16 @@ function syncVideos(t) {
   if (still) still._clipId = r.clip.id;
   else if (!v) { v = pool.find((x) => x !== activeV) || pool[0]; assign(v, r.clip, s); }
   if (v !== activeV) { if (activeV) activeV.pause(); activeV = v; }
-  const pr = spd(r.clip) * (E.rate || 1); if (v.playbackRate !== pr) v.playbackRate = pr;
+  const pr = spd(r.clip) * (E.rate || 1);
   if (E.playing && !E.stalled) {
     if (v.paused) v.play().catch(() => {});
-    if (!v.seeking && Math.abs(v.currentTime - s) > 0.25) v.currentTime = s;
+    // Vídeo atrasado ou adiantado em relação ao áudio: corrige aos poucos mudando a velocidade em até 7%
+    // (cada "pulo" com currentTime faz o vídeo recarregar e trava imagem e som). Só pula se a diferença for grande.
+    const drift = still ? 0 : v.currentTime - s;
+    if (!v.seeking && Math.abs(drift) > 0.6) { v.currentTime = s; if (v.playbackRate !== pr) v.playbackRate = pr; }
+    else { const want = Math.abs(drift) > 0.03 ? pr * (1 - clamp(drift, -0.3, 0.3) * 0.25) : pr; if (Math.abs(v.playbackRate - want) > 0.004) v.playbackRate = want; }
   } else {
+    if (v.playbackRate !== pr) v.playbackRate = pr;
     if (!v.paused) v.pause();
     if (!v.seeking && v._pending == null && Math.abs(v.currentTime - s) > 0.04) v.currentTime = s;
   }
@@ -438,6 +450,17 @@ function render(ctx, W, H, t, st, pre = false) {
 let stillPreview = false; // prévia parada: textos de modelo aparecem completos para editar
 function renderFrame(ctx, W, H, t, r, v, pre = false) {
   stillPreview = pre && !E.playing;
+  drawBase(ctx, W, H, t, r, v);
+  composeTransition(ctx, W, H, t);
+  drawLayers(ctx, W, H, t, pre); // camadas: acima do vídeo, abaixo da legenda
+  // camadas de ajuste: acima do vídeo e das camadas, abaixo da legenda
+  for (const L of S.layers) if (L.kind === 'adjust' && t >= L.start && t < L.start + L.out - L.in && hasColor(L.color)) colorPass(ctx, W, H, ctx.canvas, 0, 0, W, H, L.color);
+  const cap = captionAt(t, r);
+  if (cap && cap.text.trim()) drawCaption(ctx, W, H, cap.text, cap, srcAt(r, t));
+  overlays(ctx, W, H, t);
+}
+// o clipe (vídeo ou foto) com keyframes, zoom e cor, sem camadas nem legenda
+function drawBase(ctx, W, H, t, r, v) {
   ctx.fillStyle = v.isStill ? '#fff' : '#000'; ctx.fillRect(0, 0, W, H);
   const vw = v.videoWidth, vh = v.videoHeight;
   if (vw && vh) {
@@ -457,45 +480,84 @@ function renderFrame(ctx, W, H, t, r, v, pre = false) {
       ctx.restore();
     }
   }
-  drawLayers(ctx, W, H, t, pre); // camadas: acima do vídeo, abaixo da legenda
-  // camadas de ajuste: acima do vídeo e das camadas, abaixo da legenda
-  for (const L of S.layers) if (L.kind === 'adjust' && t >= L.start && t < L.start + L.out - L.in && hasColor(L.color)) colorPass(ctx, W, H, ctx.canvas, 0, 0, W, H, L.color);
-  const cap = captionAt(t, r);
-  if (cap && cap.text.trim()) drawCaption(ctx, W, H, cap.text, cap, srcAt(r, t));
-  overlays(ctx, W, H, t);
+}
+// ---------- Transições entre clipes (galeria) ----------
+// Centrada no corte. Antes do corte: o clipe que sai está tocando e o que entra aparece pelo primeiro quadro.
+// Depois do corte: o que entra está tocando e o que saiu fica no último quadro. Os quadros congelados são
+// tirados uma vez de cada vídeo (fotos usam a própria imagem) e guardados.
+const trCv = {};
+const trCanvas = (k, W, H) => { const c = (trCv[k] ??= document.createElement('canvas')); if (c.width !== W || c.height !== H) { c.width = W; c.height = H; } return c; };
+function trWindow(t, L = layout()) {
+  for (const r of L) {
+    if (!r.i) continue; const def = trById(r.clip.transition); if (!def || def.over) continue;
+    const d = trDurOf(r, L); if (Math.abs(t - r.start) < d / 2) return { rA: L[r.i - 1], rB: r, def, p: (t - (r.start - d / 2)) / d };
+    if (r.start - d / 2 > t) break;
+  }
+  return null;
+}
+function composeTransition(ctx, W, H, t) {
+  const w = trWindow(t); if (!w) return;
+  const { rA, rB, def, p } = w, ta = trCanvas('A', W, H), tb = trCanvas('B', W, H);
+  if (t < rB.start) {
+    const fr = frozenFrame(rB.clip.mediaId, rB.clip.in); if (!fr) return;
+    ta.getContext('2d').drawImage(ctx.canvas, 0, 0); drawBase(tb.getContext('2d'), W, H, rB.start, rB, fr);
+  } else {
+    const fr = frozenFrame(rA.clip.mediaId, Math.max(rA.clip.in, rA.clip.out - 0.04)); if (!fr) return;
+    tb.getContext('2d').drawImage(ctx.canvas, 0, 0); drawBase(ta.getContext('2d'), W, H, rA.end - 1e-3, rA, fr);
+  }
+  ctx.save(); ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H); drawTransition(ctx, W, H, def, ta, tb, p, rB.i); ctx.restore();
+}
+const frames = new Map(), frJobs = new Map(); let frQ = Promise.resolve(), frVid = null;
+const frKey = (mid, tm) => mid + '@' + tm.toFixed(2);
+function frozenFrame(mid, tm) {
+  const st = stills.get(mid); if (st) return st;
+  const f = frames.get(frKey(mid, tm)); if (f) return f;
+  loadFrame(mid, tm); return null;
+}
+function loadFrame(mid, tm) {
+  const k = frKey(mid, tm);
+  if (stills.has(mid)) return Promise.resolve(stills.get(mid));
+  if (frames.has(k)) return Promise.resolve(frames.get(k));
+  if (frJobs.has(k)) return frJobs.get(k);
+  const pr = (frQ = frQ.then(idleForFrames).then(() => grabFrame(mid, tm)).then((c) => {
+    if (frames.size > 80) frames.clear();
+    frames.set(k, c); frJobs.delete(k); if (!E.playing && !E.exporting) draw(); return c;
+  }).catch((e) => { console.warn('quadro da transição', e); frJobs.delete(k); return null; }));
+  frJobs.set(k, pr); return pr;
+}
+// os quadros das transições só são tirados com o vídeo parado (ou na exportação), para não disputar o decodificador
+async function idleForFrames() { while (E.playing && !E.exporting) await new Promise((r) => setTimeout(r, 300)); }
+async function grabFrame(mid, tm) {
+  const m = media.get(mid); if (!m) throw new Error('mídia sumiu');
+  if (!frVid) { frVid = document.createElement('video'); frVid.muted = true; frVid.playsInline = true; frVid.setAttribute('playsinline', ''); frVid.preload = 'auto'; $('#vpool').appendChild(frVid); }
+  const v = frVid, wait = (ev, ms = 5000) => new Promise((ok) => { const to = setTimeout(fin, ms); function fin() { clearTimeout(to); v.removeEventListener(ev, fin); ok(); } v.addEventListener(ev, fin); });
+  if (v._url !== m.url) { v._url = m.url; const w = wait('loadeddata'); v.src = m.url; v.load(); await w; }
+  const target = clamp(tm, 0, Math.max(0, (v.duration || tm + 1) - 0.05));
+  if (Math.abs(v.currentTime - target) > 0.001 || v.readyState < 2) { const w = wait('seeked'); v.currentTime = target; await w; }
+  const vw = v.videoWidth, vh = v.videoHeight; if (!vw || !vh) throw new Error('quadro vazio');
+  const k = Math.min(1, 1920 / Math.max(vw, vh)), c = document.createElement('canvas');
+  c.width = Math.round(vw * k); c.height = Math.round(vh * k); c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
+  return Object.assign(c, { videoWidth: c.width, videoHeight: c.height });
+}
+// pede os quadros de todas as transições (a exportação espera por eles)
+function ensureTransFrames() {
+  const L = layout(), jobs = [];
+  for (const r of L) {
+    if (!r.i) continue; const def = trById(r.clip.transition); if (!def || def.over) continue;
+    const a = L[r.i - 1].clip; jobs.push(loadFrame(a.mediaId, Math.max(a.in, a.out - 0.04)), loadFrame(r.clip.mediaId, r.clip.in));
+  }
+  return Promise.all(jobs);
 }
 function overlays(ctx, W, H, t) {
   const T = total(), fx = S.fx;
   let fa = 0;
   for (const ct of cuts()) {
-    if (ct.type === 'flash') { const half = fx.flashDur / 2, d = Math.abs(t - ct.t); if (d < half) fa = Math.max(fa, 1 - d / half); }
-    else if (ct.type === 'burn') { const p = (t - ct.t) / fx.burnDur + 0.5; if (p > 0 && p < 1) drawFilmBurn(ctx, W, H, p, ct.seed); }
+    if (ct.type === 'flash') { const half = ct.dur / 2, d = Math.abs(t - ct.t); if (d < half) fa = Math.max(fa, 1 - d / half); }
+    else if (ct.type === 'burn') { const p = (t - ct.t) / ct.dur + 0.5; if (p > 0 && p < 1) drawFilmBurn(ctx, W, H, p, ct.seed); }
   }
   if (fa > 0) { ctx.fillStyle = `rgba(255,255,255,${fa})`; ctx.fillRect(0, 0, W, H); }
   const ba = clipFadeAlpha(t);
   if (ba > 0) { ctx.fillStyle = `rgba(0,0,0,${clamp(ba, 0, 1)})`; ctx.fillRect(0, 0, W, H); }
-}
-// Film burn feito por código: manchas de luz quente que atravessam a tela e "queimam" até quase branco no corte
-function rng(seed) { let s = (seed * 2654435761) >>> 0 || 1; return () => { s ^= s << 13; s >>>= 0; s ^= s >>> 17; s ^= s << 5; s >>>= 0; return s / 4294967296; }; }
-function drawFilmBurn(ctx, W, H, p, seed) {
-  const a = Math.sin(Math.PI * clamp(p, 0, 1)); if (a <= 0.002) return;
-  const R = rng(seed + 11), M = Math.max(W, H);
-  ctx.save();
-  ctx.globalCompositeOperation = 'screen';
-  ctx.fillStyle = `rgba(255,80,10,${0.32 * a})`; ctx.fillRect(0, 0, W, H);
-  for (let i = 0; i < 6; i++) {
-    const x0 = R(), y0 = R(), dx = (R() - 0.5) * 1.1, dy = (R() - 0.5) * 0.7, rr = 0.22 + R() * 0.45, warm = R() < 0.5;
-    const x = (x0 + dx * (p - 0.5) * 2) * W, y = (y0 + dy * (p - 0.5) * 2) * H, r = rr * M * (0.45 + 0.85 * a);
-    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
-    g.addColorStop(0, `rgba(${warm ? '255,238,190' : '255,205,130'},${a})`);
-    g.addColorStop(0.35, `rgba(255,135,35,${0.85 * a})`);
-    g.addColorStop(0.7, `rgba(205,40,12,${0.45 * a})`);
-    g.addColorStop(1, 'rgba(120,0,0,0)');
-    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
-  }
-  const hot = Math.pow(a, 5);
-  if (hot > 0.01) { ctx.fillStyle = `rgba(255,246,228,${0.92 * hot})`; ctx.fillRect(0, 0, W, H); }
-  ctx.restore();
 }
 function wrapLines(ctx, text, maxW) {
   const out = [];
@@ -601,7 +663,9 @@ function loop() {
   const T = total(), t = clock();
   if (t >= T) { S.t = T; if (E.exporting) finishExport(); else { pause(); S.t = T; followScroll(); updTime(); } return; }
   const st = syncVideos(t), ready = isReady(st); syncLayers(t);
-  if (!ready && !E.stalled) {
+  // só para o som se o vídeo ficar sem quadro por mais de 0,2 s (antes, qualquer soluço do vídeo parava o áudio)
+  if (ready) E.notReady = 0; else if (!E.notReady) E.notReady = performance.now();
+  if (!ready && !E.stalled && performance.now() - E.notReady > 200) {
     E.stalled = true; E.stallSince = performance.now();
     actx.suspend(); if (E.rec && E.rec.state === 'recording') E.rec.pause(); st && st.v.pause();
   } else if (E.stalled && (ready || performance.now() - E.stallSince > 1500)) {
@@ -672,8 +736,8 @@ function renderTimeline() {
     const selC = (S.sel?.type === 'clip' || S.sel?.type === 'clipaudio') ? S.sel.id : null;
     if (r.i > 0 && !(selC && (selC === r.clip.id || selC === L[r.i - 1].clip.id))) { // com o clipe selecionado, as alças ficam no lugar do ⚡
       const b = document.createElement('button'); const tr = r.clip.transition || 'none';
-      b.className = 'tr ' + tr; b.style.left = (h + r.start * pps) + 'px';
-      b.innerHTML = tr === 'flash' ? ic('zap') : tr === 'burn' ? ic('flame') : ic('plus'); b.setAttribute('aria-label', 'Transição deste corte');
+      b.className = 'tr ' + (tr === 'none' ? 'none' : tr === 'flash' || tr === 'burn' ? tr : 'on'); b.style.left = (h + r.start * pps) + 'px';
+      b.innerHTML = tr === 'flash' ? ic('zap') : tr === 'burn' ? ic('flame') : tr === 'none' ? ic('plus') : ic('trans'); b.setAttribute('aria-label', 'Transição deste corte');
       b.onclick = (e) => { e.stopPropagation(); openCutSheet(r.clip.id); };
       tv.appendChild(b);
     }
@@ -942,6 +1006,7 @@ async function importVideos(files) {
       dbPut('file:' + m.id, f);
     } catch (e) { console.error(e); warned = true; toast('Não consegui abrir ' + f.name + ': ' + e.message, 4000); }
   }
+  if (!galeria && S.clips.length) criarProjetoAuto();
   if (!warned) toast(nImg && !nVid ? (nImg > 1 ? 'Fotos adicionadas' : 'Foto adicionada') + ' (3 s cada; arraste a borda para mudar)' : nImg ? 'Vídeos e fotos adicionados' : 'Vídeo adicionado', 2200);
   refresh();
 }
@@ -1059,83 +1124,107 @@ const pctf = (v) => `${Math.round(v)}%`;
 
 const inlineIc = (n, s = 14) => ic(n).replace('<svg', `<svg style="width:${s}px;height:${s}px;display:inline;vertical-align:-2px"`);
 function playSfx(buf, db) { if (!buf) return toast('Som ainda carregando…'); const c = ac(); c.resume(); const s = c.createBufferSource(); s.buffer = buf; const g = c.createGain(); g.gain.value = dbToGain(db); s.connect(g).connect(c.destination); s.start(); }
-async function openTransitions() {
-  await loadSfxIndex();
-  const sndOpts = (cur, def) => `<option value="">${def}</option>` + sfxIndex.map((s) => `<option value="${esc(s.file)}" ${cur === s.file ? 'selected' : ''}>${esc(s.name)}</option>`).join('');
-  const fx = new Proxy({}, { get: (_, k) => S.fx[k], set: (_, k, v) => ((S.fx[k] = v), true) });
-  openSheet('trans', 'Transições', `
-    <div class="sec">Aplicar em todos os cortes</div>
-    <div class="chips">
-      <button class="chip" data-all="flash">${inlineIc('zap')} Flash</button>
-      <button class="chip" data-all="burn">${inlineIc('flame')} Film burn</button>
-      <button class="chip" data-all="none">Remover</button>
-    </div>
-    <div class="sec">${inlineIc('zap')} Flash</div>
-    ${rangeRow('flashDur', 'Duração', 0.1, 0.8, 0.05, fx.flashDur, sec)}
-    <div class="row"><label>Som</label><span class="spacer"></span><input type="checkbox" class="tg" id="clk" ${fx.click ? 'checked' : ''}></div>
-    <div class="row"><label>Qual som</label><select id="snd-flash">${sndOpts(fx.flashSnd, 'Clique (padrão)')}</select></div>
-    ${rangeRow('clickDb', 'Volume', -30, 0, 1, fx.clickDb, (v) => `${v} dB`)}
-    <button class="chip" id="clk-test">${inlineIc('play', 12)} Ouvir</button>
-    <div class="sec">${inlineIc('flame')} Film burn</div>
-    ${rangeRow('burnDur', 'Duração', 0.4, 2, 0.1, fx.burnDur, sec)}
-    <div class="row"><label>Som</label><span class="spacer"></span><input type="checkbox" class="tg" id="brn" ${fx.burnSound ? 'checked' : ''}></div>
-    <div class="row"><label>Qual som</label><select id="snd-burn">${sndOpts(fx.burnSnd, 'Queima (padrão)')}</select></div>
-    ${rangeRow('burnDb', 'Volume', -30, 0, 1, fx.burnDb, (v) => `${v} dB`)}
-    <button class="chip" id="brn-test">${inlineIc('play', 12)} Ouvir</button>
-    <p class="note">Os sons vêm da biblioteca de SFX (com o trecho que você cortou lá). O ponto mais forte do som fica exatamente no corte.</p>
-    <p class="note">O fade fica no botão Fade do clipe. Dica: toque no ícone entre dois clipes, na linha do tempo, para escolher a transição só daquele corte.</p>
-  `, (b) => {
-    const tog = (id, fn) => $(id, b).addEventListener('change', (e) => { commit(); fn(e.target.checked); draw(); renderTimeline(); });
-    tog('#clk', (v) => (fx.click = v));
-    tog('#brn', (v) => (fx.burnSound = v));
-    b.querySelectorAll('[data-all]').forEach((el) => el.onclick = () => {
-      const k = el.dataset.all; commit();
-      S.clips.forEach((c, i) => (c.transition = i ? k : 'none')); renderTimeline(); draw();
-      toast(k === 'none' ? 'Transições removidas' : `${TR_LABEL[k]} aplicado em todos os cortes`);
-    });
-    const test = async (type, db) => {
-      const file = type === 'flash' ? fx.flashSnd : fx.burnSnd; if (file) { try { await sfxBuffer(file); } catch {} }
-      const s = transSound(type); if (!s) return toast('Som ainda carregando…'); playRange(s.buf, s.in, s.out, db);
-    };
-    $('#clk-test', b).onclick = () => test('flash', fx.clickDb);
-    $('#brn-test', b).onclick = () => test('burn', fx.burnDb);
-    const pick = (id, key) => $(id, b).onchange = async (e) => {
-      commit(); fx[key] = e.target.value || null;
-      if (fx[key]) { try { await sfxBuffer(fx[key]); } catch { toast('Não consegui carregar este som'); } }
-    };
-    pick('#snd-flash', 'flashSnd'); pick('#snd-burn', 'burnSnd');
-    bindRanges(b, {
-      flashDur: { set: (v) => (fx.flashDur = v), fmt: sec },
-      clickDb: { set: (v) => (fx.clickDb = v), fmt: (v) => `${v} dB` },
-      burnDur: { set: (v) => (fx.burnDur = v), fmt: sec },
-      burnDb: { set: (v) => (fx.burnDb = v), fmt: (v) => `${v} dB` },
-    });
-  });
+// ---------- Galeria de transições ----------
+// Toque numa transição: ela entra no corte e a prévia toca o trecho. Toque de novo na mesma: abre os ajustes
+// (duração, som e volume). Cada miniatura fica repetindo a transição com os próprios clipes do corte.
+function openTransitions() {
+  const r = layout()[1]; if (!r) return toast('Adicione outro vídeo ou divida o clipe para ter um corte');
+  openCutSheet(r.clip.id);
 }
-function openCutSheet(clipId) {
+let trAnim = 0, trPrevStop = 0;
+function trThumbs(i) {
+  // quadros da miniatura: miniaturas dos dois clipes do corte (ou imagens de exemplo)
+  const W = 90, H = 160, mk = (src) => new Promise((ok) => {
+    if (!src) return ok(null);
+    const im = new Image(); im.onload = () => {
+      const c = document.createElement('canvas'); c.width = W; c.height = H; const x = c.getContext('2d');
+      const k = Math.max(W / im.width, H / im.height), w = im.width * k, h = im.height * k; x.drawImage(im, (W - w) / 2, (H - h) / 2, w, h); ok(c);
+    }; im.onerror = () => ok(null); im.src = src;
+  });
+  const a = media.get(S.clips[i - 1]?.mediaId)?.thumb, b = media.get(S.clips[i]?.mediaId)?.thumb, [sa, sb] = sampleFrames(W, H);
+  return Promise.all([mk(a), mk(b)]).then(([x, y]) => (x && y && a !== b ? [x, y] : [sa, sb]));
+}
+function openCutSheet(clipId, editar = false) {
   const i = S.clips.findIndex((c) => c.id === clipId);
-  if (i <= 0) return toast('O primeiro clipe não tem corte antes dele');
+  if (i <= 0) return openTransitions();
   const c = S.clips[i];
-  const L = layout(); seekTo(L[i].start - 0.6);
-  openSheet('cut', 'Transição do corte', `
-    <div class="chips">
-      <button class="chip ${c.transition === 'none' ? 'on' : ''}" data-tr="none">Nenhuma</button>
-      <button class="chip ${c.transition === 'flash' ? 'on' : ''}" data-tr="flash">${inlineIc('zap')} Flash${S.fx.click ? ' + som' : ''}</button>
-      <button class="chip ${c.transition === 'burn' ? 'on' : ''}" data-tr="burn">${inlineIc('flame')} Film burn${S.fx.burnSound ? ' + som' : ''}</button>
-    </div>
-    <button class="btn" id="tr-all">Aplicar esta transição a todos os cortes</button>
-    <button class="btn" id="tr-prev">${inlineIc('play', 12)} Ver o corte</button>
-    <button class="btn" id="tr-more">${inlineIc('sliders')} Ajustes das transições (duração, som, todos os cortes)</button>
-  `, (b) => {
-    $('#tr-more', b).onclick = () => openTransitions();
+  const card = (t) => `<button class="trg-card ${c.transition === t.id ? 'on' : ''}" data-tr="${t.id}"><canvas data-trc="${t.id}"></canvas><span>${esc(t.name)}</span></button>`;
+  openSheet('cut', 'Transições', `
+    <div id="tr-edit"></div>
+    <div class="trg-grid"><button class="trg-card none ${c.transition === 'none' ? 'on' : ''}" data-tr="none"><div class="trg-none">${ic('x')}</div><span>Nenhuma</span></button></div>
+    ${TR_CATS.map((cat) => `<div class="sec">${esc(cat)}</div><div class="trg-grid">${TRANSITIONS.filter((t) => t.cat === cat).map(card).join('')}</div>`).join('')}
+    <p class="note">Toque para colocar no corte. Toque de novo na mesma transição para ajustar a duração e o som.</p>`, (b) => {
+    const edit = $('#tr-edit', b);
+    const showEdit = () => {
+      if (c.transition === 'none') { edit.innerHTML = ''; return; }
+      const def = trById(c.transition), r = layout()[i], d = trDurOf(r), cur = c.trSnd ?? '', defSnd = soundKeyDefault(c);
+      const nomeSnd = (k) => k === '@click' ? 'Clique' : k === '@burn' ? 'Queima' : (sfxIndex || []).find((x) => x.file === k)?.name || k;
+      edit.innerHTML = `<div class="tr-box">
+        <div class="tr-box-h"><b>${esc(def?.name || '')}</b><button class="chip" id="tr-fechar">Fechar ajustes</button></div>
+        ${rangeRow('trd', 'Duração', 0.2, 2, 0.05, +d.toFixed(2), sec, def?.dur ?? 0.5)}
+        <div class="row"><label>Som</label><select id="tr-snd">
+          <option value="" ${cur === '' ? 'selected' : ''}>Padrão${defSnd ? ': ' + esc(nomeSnd(defSnd)) : ' (sem som)'}</option>
+          <option value="none" ${cur === 'none' ? 'selected' : ''}>Sem som</option>
+          ${(sfxIndex || []).map((x) => `<option value="${esc(x.file)}" ${cur === x.file ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}
+        </select></div>
+        ${rangeRow('trdb', 'Volume do som', -30, 6, 1, trDbOf(c), (v) => `${v} dB`, -8)}
+        <div class="chips"><button class="chip" id="tr-ouvir">${inlineIc('play', 12)} Ouvir o som</button><button class="chip" id="tr-ver">${inlineIc('play', 12)} Ver o corte</button><button class="chip" id="tr-todos">Usar em todos os cortes</button></div>
+      </div>`;
+      bindRanges(edit, {
+        trd: { set: (v) => (c.trDur = v), fmt: sec, after: () => { renderTimeline(); verCorte(); } },
+        trdb: { set: (v) => (c.trDb = v), fmt: (v) => `${v} dB` },
+      });
+      $('#tr-snd', edit).onchange = async (e) => {
+        commit(); c.trSnd = e.target.value === '' ? null : e.target.value;
+        const k = soundKey(c); if (k && !k.startsWith('@')) { try { await sfxBuffer(k); } catch { toast('Não consegui carregar este som'); } }
+        ouvir();
+      };
+      $('#tr-ouvir', edit).onclick = ouvir;
+      $('#tr-ver', edit).onclick = verCorte;
+      $('#tr-fechar', edit).onclick = () => (edit.innerHTML = '');
+      $('#tr-todos', edit).onclick = () => {
+        commit(); S.clips.forEach((x, k) => { if (!k) return; x.transition = c.transition; x.trDur = c.trDur; x.trSnd = c.trSnd; x.trDb = c.trDb; });
+        renderTimeline(); draw(); toast('Transição aplicada em todos os cortes');
+      };
+    };
+    const ouvir = async () => {
+      const k = soundKey(c); if (!k) return toast('Esta transição está sem som');
+      if (!k.startsWith('@')) { try { await sfxBuffer(k); } catch {} }
+      const snd = soundFor(c); if (!snd) return toast('Som ainda carregando…'); playRange(snd.buf, snd.in, snd.out, trDbOf(c));
+    };
+    const verCorte = () => {
+      const r = layout()[i]; if (!r) return; const d = c.transition === 'none' ? 0 : trDurOf(r);
+      pause(); seekTo(Math.max(0, r.start - d / 2 - 0.7)); play();
+      clearTimeout(trPrevStop); trPrevStop = setTimeout(() => { if (E.playing && !E.exporting) pause(); }, (d + 1.5) * 1000);
+    };
     b.querySelectorAll('[data-tr]').forEach((el) => el.onclick = () => {
-      commit(); c.transition = el.dataset.tr;
-      b.querySelectorAll('[data-tr]').forEach((x) => x.classList.toggle('on', x === el)); renderTimeline(); draw();
+      const id = el.dataset.tr;
+      if (id === c.transition && id !== 'none') { showEdit(); edit.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); return; }
+      commit(); c.transition = id; delete c.trDur; delete c.trSnd; delete c.trDb;
+      b.querySelectorAll('[data-tr]').forEach((x) => x.classList.toggle('on', x === el));
+      edit.innerHTML = ''; renderTimeline(); ensureTransFrames();
+      const k = soundKey(c); if (k && !k.startsWith('@')) sfxBuffer(k).catch(() => {});
+      if (id !== 'none') verCorte(); else draw();
     });
-    $('#tr-all', b).onclick = () => { commit(); S.clips.forEach((x, k) => (x.transition = k ? c.transition : 'none')); renderTimeline(); toast('Aplicado a todos os cortes'); };
-    $('#tr-prev', b).onclick = () => { seekTo(Math.max(0, layout()[i].start - 1.2)); play(); };
+    loadSfxIndex().then(() => { if (editar) showEdit(); });
+    // miniaturas animadas: 0,4 s no clipe A, a transição, 0,5 s no clipe B
+    trThumbs(i).then(([A, B]) => {
+      const cvs = [...b.querySelectorAll('canvas[data-trc]')].map((cv) => { cv.width = 90; cv.height = 160; return { cv, x: cv.getContext('2d'), def: trById(cv.dataset.trc) }; });
+      cancelAnimationFrame(trAnim); const t0 = performance.now(); let last = 0;
+      const tick = (now) => {
+        if (sheetKind !== 'cut' || !b.isConnected) return;
+        trAnim = requestAnimationFrame(tick); if (now - last < 33) return; last = now;
+        for (const o of cvs) {
+          const T = 0.4 + o.def.dur * 1.6 + 0.5, u = ((now - t0) / 1000) % T, p = clamp((u - 0.4) / (o.def.dur * 1.6), 0, 1);
+          o.x.fillStyle = '#000'; o.x.fillRect(0, 0, 90, 160); drawTransition(o.x, 90, 160, o.def, A, B, p, 3);
+        }
+      };
+      trAnim = requestAnimationFrame(tick);
+    });
   });
 }
+// som padrão da transição (sem a escolha feita no clipe)
+function soundKeyDefault(c) { const x = { ...c, trSnd: null }; return soundKey(x); }
 // ---------- Zoom in / zoom out (efeito dentro do clipe) ----------
 // ---------- Velocidade do clipe ----------
 const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2, 3];
@@ -1586,6 +1675,22 @@ function transSound(type) {
   }
   if (type === 'flash') return clickBuf ? { buf: clickBuf, in: 0, out: clickBuf.duration, peak: 0 } : null;
   return burnBuf ? { buf: burnBuf, in: 0, out: burnBuf.duration, peak: BURN_PEAK } : null;
+}
+// Som da transição de um corte: escolhido no clipe (trSnd: arquivo da biblioteca, 'none' = sem som) ou o padrão dela
+function soundKey(c) {
+  if (c.trSnd != null) return c.trSnd === 'none' ? null : c.trSnd;
+  if (c.transition === 'flash') return S.fx.click ? (S.fx.flashSnd || '@click') : null;
+  if (c.transition === 'burn') return S.fx.burnSound ? (S.fx.burnSnd || '@burn') : null;
+  return trById(c.transition)?.snd || null;
+}
+const trDbOf = (c) => c.trDb ?? (c.transition === 'flash' ? S.fx.clickDb : c.transition === 'burn' ? S.fx.burnDb : -8);
+function soundFor(c) {
+  const k = soundKey(c); if (!k) return null;
+  if (k === '@click') return clickBuf ? { buf: clickBuf, in: 0, out: clickBuf.duration, peak: 0 } : null;
+  if (k === '@burn') return burnBuf ? { buf: burnBuf, in: 0, out: burnBuf.duration, peak: BURN_PEAK } : null;
+  const buf = sfxCache.get(k);
+  if (buf) { const [a, b] = sfxTrim(k, buf.duration); return { buf, in: a, out: b, peak: peakOf(k, buf, a, b) }; }
+  sfxBuffer(k).catch(() => {}); return null;
 }
 function playRange(buf, a, b, db = 0) {
   stopSfxPrev(); const c = ac(); c.resume();
@@ -2927,7 +3032,8 @@ async function pickCodecs(W, H, vbr) {
 async function renderMixdown(T, sr) {
   ac(); await actx.resume().catch(() => {});
   // garante que os sons das transições já estão carregados
-  for (let k = 0; k < 40 && cuts().some((c) => !transSound(c.type)); k++) await new Promise((r) => setTimeout(r, 50));
+  for (let k = 0; k < 60 && cuts().some((c) => soundKey(c.clip) && !soundFor(c.clip)); k++) await new Promise((r) => setTimeout(r, 50));
+  await Promise.race([ensureTransFrames(), new Promise((r) => setTimeout(r, 15000))]);
   await prepareSpeeds();
   const off = new OfflineAudioContext(2, Math.max(1, Math.ceil(T * sr)), sr);
   scheduleAudio(0, off.destination, off);
@@ -2941,6 +3047,87 @@ function lastExportProblem() {
     const x = JSON.parse(localStorage.getItem('corte-exp') || 'null'); if (!x || x.stage === 'pronto' || x.stage === 'erro-mostrado') return '';
     return `A última exportação parou (etapa: ${x.stage}${x.pct != null ? ', ' + x.pct + '%' : ''}${x.mode ? ', modo ' + x.mode : ''}${x.mb != null ? ', ' + x.mb + ' MB' : ''}${x.err ? ', erro: ' + x.err : ''}; ${x.res || ''} ${x.codec || ''}, ${x.dur || '?'}s).`;
   } catch { return ''; }
+}
+// ---------- Exportação rápida: quadros decodificados direto do arquivo (WebCodecs) ----------
+// Em vez de tocar o vídeo em tempo real e capturar cada quadro, lê as amostras do MP4/MOV e decodifica com o
+// VideoDecoder do navegador (por hardware). Fica várias vezes mais rápido que o tempo real. Arquivos que não são
+// MP4/MOV, codecs sem suporte ou qualquer erro num clipe: aquele clipe segue pelo modo antigo, sem perder nada.
+const decCache = new Map(); // mediaId -> Promise<demux | null>
+function videoDemux(mid) {
+  if (!decCache.has(mid)) decCache.set(mid, openDemux(mid).catch((e) => { console.warn('exportação rápida indisponível para este vídeo', e); return null; }));
+  return decCache.get(mid);
+}
+async function openDemux(mid) {
+  if (!('VideoDecoder' in window) || !('EncodedVideoChunk' in window)) return null;
+  const file = await dbGet('file:' + mid); if (!file) return null;
+  const MP4Box = await loadMp4box();
+  const boxes = await topBoxes(file);
+  if (!boxes.some((b) => b.type === 'moov')) return null;
+  const mp4 = MP4Box.createFile(); let info = null; mp4.onReady = (i) => (info = i); mp4.onError = () => {};
+  for (const b of boxes) {
+    const big = b.type === 'mdat' || (b.type === 'free' && b.size > 1e6);
+    const ab = await file.slice(b.off, b.off + (big ? 16 : b.size)).arrayBuffer(); ab.fileStart = b.off; mp4.appendBuffer(ab);
+  }
+  mp4.flush(); if (!info) return null;
+  const track = info.videoTracks?.[0] || info.tracks.find((t) => t.video); if (!track) return null;
+  const trak = mp4.getTrackById(track.id), samples = trak.samples || []; if (!samples.length) return null;
+  const entry = trak.mdia.minf.stbl.stsd.entries[0], box = entry.avcC || entry.hvcC || entry.vpcC || entry.av1C;
+  let description;
+  if (box) { const ds = new window.DataStream(undefined, 0, window.DataStream.BIG_ENDIAN); box.write(ds); description = new Uint8Array(ds.buffer, 8); }
+  const config = { codec: track.codec, codedWidth: track.video?.width || track.track_width, codedHeight: track.video?.height || track.track_height, ...(description ? { description } : {}) };
+  const sup = await VideoDecoder.isConfigSupported(config).catch(() => null); if (!sup?.supported) return null;
+  const ts = trak.mdia.mdhd.timescale; let off = 0;
+  try { const el = trak.edts?.elst?.entries?.[0]; if (el && el.media_time > 0) off = el.media_time; } catch {}
+  // vídeo gravado de pé no iPhone: a imagem vem deitada com uma matriz de rotação (o <video> gira sozinho; aqui giramos nós)
+  let rot = 0; const m = track.matrix;
+  if (m && m.length >= 2) { const ang = Math.round(Math.atan2(m[1], m[0]) * 180 / Math.PI); rot = (((Math.round(ang / 90) * 90) % 360) + 360) % 360; }
+  // conferência: depois de girar, a orientação tem que ser a mesma que o player mostra; se não for, usa o modo antigo
+  const md = media.get(mid), cw = config.codedWidth, ch = config.codedHeight, rw = rot % 180 ? ch : cw, rh = rot % 180 ? cw : ch;
+  if (md && md.w && md.h && Math.abs(md.w - md.h) > 4 && (rw > rh) !== (md.w > md.h)) return null;
+  return { file, config, samples, ts, off, rot };
+}
+// quadros de um trecho [a, b] (segundos do arquivo), em ordem. frameAt(t) = quadro que aparece no instante t.
+function clipFrames(dm, a, b) {
+  const SM = dm.samples, tOf = (x) => (x.cts - dm.off) / dm.ts, dOf = (x) => (x.dts - dm.off) / dm.ts;
+  let i0 = 0; for (let i = 0; i < SM.length; i++) { if (dOf(SM[i]) > a + 3) break; if (SM[i].is_sync && tOf(SM[i]) <= a + 1e-3) i0 = i; }
+  const out = []; let err = null, ended = false, i = i0, cur = null, buf = null, bOff = 0, bEnd = 0;
+  const dec = new VideoDecoder({ output: (f) => out.push(f), error: (e) => (err = e) });
+  dec.configure(dm.config);
+  const bytes = async (x) => {
+    if (!buf || x.offset < bOff || x.offset + x.size > bEnd) {
+      bOff = x.offset; bEnd = Math.min(dm.file.size, x.offset + Math.max(x.size, 4 * 1024 * 1024));
+      buf = new Uint8Array(await dm.file.slice(bOff, bEnd).arrayBuffer());
+    }
+    return buf.subarray(x.offset - bOff, x.offset - bOff + x.size);
+  };
+  const feed = async () => {
+    if (i >= SM.length || dOf(SM[i]) > b + 0.5) { if (!ended) { ended = true; try { await dec.flush(); } catch (e) { err ||= e; } } return false; }
+    const x = SM[i++];
+    dec.decode(new EncodedVideoChunk({ type: x.is_sync ? 'key' : 'delta', timestamp: Math.round(tOf(x) * 1e6), duration: Math.round((x.duration / dm.ts) * 1e6), data: await bytes(x) }));
+    return true;
+  };
+  return {
+    async frameAt(t) {
+      const tu = t * 1e6 + 500;
+      for (let guard = 0; guard < 100000; guard++) {
+        if (err) throw err;
+        while (out.length && out[0].timestamp <= tu) { cur?.close(); cur = out.shift(); }
+        if (out.length || ended) break;
+        if (dec.decodeQueueSize > 8) { await new Promise((r) => setTimeout(r, 1)); continue; }
+        await feed();
+      }
+      return cur || out[0] || null;
+    },
+    close() { try { cur?.close(); } catch {} out.forEach((f) => { try { f.close(); } catch {} }); out.length = 0; try { dec.close(); } catch {} },
+  };
+}
+// o quadro decodificado como fonte de desenho (com a rotação aplicada) para o renderFrame
+function frameSource(fr, rot, cv) {
+  const w = fr.displayWidth, h = fr.displayHeight;
+  const sw = rot % 180 ? h : w, sh = rot % 180 ? w : h;
+  if (cv.width !== sw || cv.height !== sh) { cv.width = sw; cv.height = sh; }
+  const x = cv.getContext('2d'); x.save(); x.translate(sw / 2, sh / 2); if (rot) x.rotate(rot * Math.PI / 180); x.drawImage(fr, -w / 2, -h / 2, w, h); x.restore();
+  cv.videoWidth = sw; cv.videoHeight = sh; return cv;
 }
 async function exportFrames(res, codecs) {
   const FPS = 30, T = total(), [W, H] = outSize(res), ex = E.exp;
@@ -2977,7 +3164,7 @@ async function exportFrames(res, codecs) {
 
   // 2) vídeo: cada quadro do clipe é desenhado e gravado com o tempo exato
   const cv = ex.cv, cx = ex.cx, L = layout(), total_frames = Math.max(1, Math.round(T * FPS));
-  let k = 0, rate = 1, dupHits = 0, seekMode = false;
+  let k = 0, rate = 1, dupHits = 0, seekMode = false, fastMode = false;
   const seekVid = (v, s) => new Promise((ok) => {
     if (Math.abs(v.currentTime - s) < 0.001 && !v.seeking) return ok();
     const to = setTimeout(fin, 4000);
@@ -3010,13 +3197,13 @@ async function exportFrames(res, codecs) {
   E.rate = 1;
   const progress = () => {
     const pct = Math.min(99, Math.round(100 * k / total_frames));
-    if (k % 30 === 0) expLog({ stage: 'video', pct, mode: seekMode ? 'quadro a quadro' : 'tocando', rate, mb: Math.round(written / 1048576) }); const bar = $('#exp-bar'); if (bar) bar.style.width = pct + '%';
+    if (k % 30 === 0) expLog({ stage: 'video', pct, mode: fastMode ? 'rápido' : seekMode ? 'quadro a quadro' : 'tocando', rate, mb: Math.round(written / 1048576) }); const bar = $('#exp-bar'); if (bar) bar.style.width = pct + '%';
     const lab = $('#exp-st'); if (lab) lab.textContent = `Exportando… ${pct}%`;
   };
   const emitUpTo = async (tl, r, v) => {
     // grava todos os quadros da grade de 30 fps até o tempo tl, usando o quadro atual do vídeo
     let n = 0;
-    while (k < total_frames && k / FPS <= tl + 1e-4) {
+    while (k < total_frames && k / FPS <= tl + 1e-4 && !ex.cancelled) {
       const t = k / FPS; S.t = t;
       const lw = layersAt(t); if (lw) await lw;
       renderFrame(cx, W, H, t, r, v);
@@ -3042,6 +3229,22 @@ async function exportFrames(res, codecs) {
       if (encErr) throw encErr;
       continue;
     }
+    // modo rápido (WebCodecs); se falhar, o resto deste clipe segue pelo modo antigo a partir do quadro em que parou
+    try {
+      const dm = await videoDemux(c.mediaId);
+      if (dm && !ex.cancelled) {
+        const rd = clipFrames(dm, c.in, c.out), rcv = document.createElement('canvas'); fastMode = true;
+        try {
+          while (k < total_frames && k / FPS < r.end - 1e-3 && !ex.cancelled && !encErr) {
+            const fr = await rd.frameAt(Math.min(c.out - 0.001, Math.max(c.in, srcAt(r, k / FPS))));
+            if (!fr) throw new Error('sem quadro');
+            await emitUpTo(k / FPS, r, frameSource(fr, dm.rot, rcv)); await drain();
+          }
+        } finally { rd.close(); }
+        if (encErr) throw encErr;
+        continue;
+      }
+    } catch (e) { if (e === encErr) throw e; console.warn('exportação rápida falhou neste clipe; segue no modo normal', e); fastMode = false; }
     let v = pool.find((x) => x._clipId === c.id) || pool.find((x) => x !== activeV) || pool[0];
     if (v._clipId !== c.id) assign(v, c, c.in);
     activeV = v; v.pause();
@@ -3158,9 +3361,11 @@ function expUI(st = expState()) {
 async function startExport(res) {
   const mime = pickMime();
   if (!mime || !HTMLCanvasElement.prototype.captureStream) { expFalhou('este navegador não consegue exportar vídeo'); return toast('Este navegador não consegue exportar vídeo', 3000); }
-  E.expSig = expSig(); E.exporting = true; expUI('run');
+  E.expSig = expSig(); E.exporting = true; E.expCancel = false; expUI('run');
+  { const btn = $('#exp-btn'); if (btn) btn.disabled = false; }
   $('#exp-st').textContent = 'Preparando…'; $('#exp-bar').style.width = '0%';
   await ensureFonts();
+  if (E.expCancel) return abortExport();
   const [W, H] = outSize(res);
   const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
   const cx = cv.getContext('2d'); cx.fillStyle = '#000'; cx.fillRect(0, 0, W, H);
@@ -3168,18 +3373,21 @@ async function startExport(res) {
   ac(); await Promise.race([actx.resume(), new Promise((r) => setTimeout(r, 1500))]);
   const vbr = (BITRATES[res] || BITRATES['1080'])[prefs.br || 'normal'] || 10_000_000;
   const codecs = await pickCodecs(W, H, vbr);
+  if (E.expCancel) return abortExport();
   if (!codecs && actx.state !== 'running') {
     E.exporting = false; expUI(); expFalhou('o Chrome bloqueou o áudio: clique uma vez na página e exporte de novo');
     return toast('Clique uma vez na página e exporte de novo', 3500);
   }
   if (codecs) {
-    const ex = { cv, cx, W, H, mime: 'video/mp4', res, cancelled: false, frames: true };
+    const ex = { cv, cx, W, H, mime: 'video/mp4', res, cancelled: !!E.expCancel, frames: true };
     E.exporting = true; E.exp = ex; E.playing = true; E.stalled = false; updPlay();
     try { E.wake = await navigator.wakeLock?.request('screen'); } catch {}
     let blob = null, err = null;
     try { blob = await exportFrames(res, codecs); } catch (e) { err = e; console.error('exportação', e); expLog({ stage: 'erro', err: String(e.message || e).slice(0, 120) }); }
-    E.playing = false; E.exporting = false; E.exp = null; E.rate = 1; updPlay();
+    E.playing = false; E.exporting = false; E.exp = null; E.rate = 1; E.expCancel = false; updPlay();
+    { const btn = $('#exp-btn'); if (btn) btn.disabled = false; }
     try { E.wake?.release(); } catch {}
+    if (ex.cancelled) toast('Exportação cancelada', 1500);
     if (ex.cancelled || !blob) {
       expFalhou(err || 'exportação cancelada');
       expUI();
@@ -3209,16 +3417,30 @@ function finishExport() {
   if (actx.state === 'suspended') actx.resume();
   setTimeout(() => {
     ex.rec.onstop = () => {
-      E.exporting = false; E.exp = null; E.rec = null; updPlay();
+      E.exporting = false; E.exp = null; E.rec = null; E.expCancel = false; updPlay();
+      { const btn = $('#exp-btn'); if (btn) btn.disabled = false; }
       try { E.wake?.release(); } catch {}
-      if (ex.cancelled) { expFalhou('exportação cancelada'); expUI(); return; }
+      if (ex.cancelled) { expFalhou('exportação cancelada'); expUI(); toast('Exportação cancelada', 1500); return; }
       const type = ex.mime.split(';')[0];
       exportReady(new Blob(ex.chunks, { type }), type);
     };
     ex.rec.stop();
   }, 200);
 }
-function cancelExport() { if (!E.exp) return; E.exp.cancelled = true; if (!E.exp.frames) finishExport(); }
+// Cancelar vale em qualquer fase (inclusive "Preparando…", antes de começar a gravar) e avisa na hora
+function cancelExport() {
+  if (!E.exporting) return;
+  E.expCancel = true;
+  const lab = $('#exp-st'); if (lab) lab.textContent = 'Cancelando…';
+  const btn = $('#exp-btn'); if (btn) btn.disabled = true;
+  if (E.exp) { E.exp.cancelled = true; if (!E.exp.frames) finishExport(); }
+}
+// encerra uma exportação cancelada antes de existir o gravador
+function abortExport() {
+  E.exporting = false; E.exp = null; E.playing = false; E.expCancel = false; updPlay();
+  const btn = $('#exp-btn'); if (btn) btn.disabled = false;
+  expFalhou('exportação cancelada'); expUI(); toast('Exportação cancelada', 1500); draw();
+}
 let expEspera = null;   // exportarArquivo(): o agente recebe o vídeo pronto em vez de baixar
 function expFalhou(e) { if (expEspera) { const w = expEspera; expEspera = null; w.reject(e instanceof Error ? e : new Error(String(e || 'exportação cancelada'))); } }
 function exportarArquivo(res = '1080') {
@@ -3230,6 +3452,7 @@ function exportarArquivo(res = '1080') {
   });
 }
 function exportReady(blob, type) {
+  salvarVersao('Exportado em ' + new Date().toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }));
   const ext = type.includes('mp4') ? 'mp4' : 'webm';
   if (lastExport) URL.revokeObjectURL(lastExport.url);
   lastExport = { blob, url: URL.createObjectURL(blob), name: `corte-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}.${ext}`, type, sig: E.expSig };
@@ -3408,12 +3631,32 @@ function projetoObj() {
     media: [...media.values()].filter((m) => used.has(m.id)).map(({ url, ...m }) => m),
     images: [...images.values()].filter((im) => S.layers.some((l) => l.srcId === im.id)).map(({ id, name, w, h }) => ({ id, name, w, h })),
     buffers: [...buffers.entries()].filter(([id]) => usedBuf.has(id)).map(([id, b]) => ({ id, name: b.name, fileKey: b.fileKey })),
-    galeria,
+    galeria, versoes,
   };
+}
+// arquivos (no aparelho) que este projeto usa: apagados junto quando o projeto é apagado
+const arquivosDo = (p) => [...(p.media || []).map((m) => 'file:' + m.id), ...(p.images || []).map((m) => 'file:' + m.id), ...(p.buffers || []).map((b) => b.fileKey).filter(Boolean)];
+const dbDel = (k) => dbOp('readwrite', (s) => s.delete(k)).catch(() => {});
+
+// ---------- Versões do projeto ----------
+// Cada exportação guarda uma cópia do estado (só a edição, não os vídeos: poucos KB). Dá para voltar a qualquer uma,
+// mesmo dias depois. Guarda as 12 mais recentes. O desfazer/refazer continua só durante a sessão.
+let versoes = [];
+const MAX_VERSOES = 12;
+function salvarVersao(nome) {
+  if (!S.clips.length) return;
+  const sn = snap(); if (versoes[0]?.snap === sn) return;
+  versoes.unshift({ id: uid(), em: new Date().toISOString(), nome: nome || 'Versão', snap: sn });
+  versoes = versoes.slice(0, MAX_VERSOES); saveSoon();
+}
+function voltarVersao(id) {
+  const v = versoes.find((x) => x.id === id); if (!v) return;
+  salvarVersao('Antes de voltar'); commit(); restore(v.snap); toast('Voltou para: ' + v.nome, 2200);
 }
 async function restoreProject() {
   let p; try { p = await dbGet('project'); } catch { return; }
   if (!p || !p.media?.length) return;
+  if (p.galeria && !sessionStorage.getItem('editando')) { await dbDel('project'); return; } // está salvo na galeria: abre pela tela inicial
   toast('Restaurando seu projeto…', 60000);
   try {
     for (const m of p.media) {
@@ -3433,18 +3676,21 @@ async function restoreProject() {
     S.layers = S.layers.filter((l) => (l.kind === 'adjust' || l.kind === 'text' ? true : l.kind === 'image' ? images.has(l.srcId) : media.has(l.srcId)));
     S.clips = S.clips.filter((c) => media.has(c.mediaId));
     S.audios = S.audios.filter((a) => buffers.has(a.bufferId));
-    S.words = p.words || {}; S.aspect = p.aspect; S.t = clamp(p.t || 0, 0, total()); galeria = p.galeria || null;
-    toast('Projeto restaurado', 1200);
+    S.words = p.words || {}; S.aspect = p.aspect; S.t = clamp(p.t || 0, 0, total()); galeria = p.galeria || null; versoes = p.versoes || [];
+    toast('Projeto aberto', 1200);
   } catch (e) { console.error(e); toast('Não consegui restaurar o projeto anterior', 2500); }
   refresh();
 }
 async function newProject() {
-  if (S.clips.length && !confirm('Começar um projeto novo? O atual será apagado.')) return;
-  pause(); galeria = null; S.clips = []; S.audios = []; S.layers = []; S.zooms = []; images.forEach((im) => URL.revokeObjectURL(im.url)); images.clear(); stills.clear(); S.captions = []; S.words = {}; S.aspect = null; S.t = 0; S.sel = null; S.origVolume = 1;
+  if (S.clips.length && galeria) { toast('Salvando na galeria…', 20000); try { clearTimeout(galT); await galeriaSalvar(); } catch (e) { if (!confirm('Não consegui salvar na galeria (' + e.message + '). Fechar mesmo assim?')) return; } }
+  else if (S.clips.length && !confirm('Este projeto não está na galeria e será apagado. Continuar?')) return;
+  const solto = !galeria && S.clips.length ? arquivosDo(projetoObj()) : [];
+  sessionStorage.removeItem('editando');
+  pause(); galeria = null; versoes = []; S.clips = []; S.audios = []; S.layers = []; S.zooms = []; images.forEach((im) => URL.revokeObjectURL(im.url)); images.clear(); stills.clear(); S.captions = []; S.words = {}; S.aspect = null; S.t = 0; S.sel = null; S.origVolume = 1;
   media.forEach((m) => URL.revokeObjectURL(m.url)); media.clear(); buffers.clear(); hist.past = []; hist.future = [];
   pool.forEach((v) => { v._clipId = null; v._url = null; v.removeAttribute('src'); v.load(); });
-  try { await dbOp('readwrite', (s) => s.clear()); } catch {}
-  updUndo(); refresh();
+  clearTimeout(saveTimer); await dbDel('project'); for (const k of solto) await dbDel(k);
+  homeItens = null; updUndo(); refresh(); toast('Projeto salvo. Escolha outro na galeria ou comece um novo.', 2500);
 }
 
 // ---------- Geral ----------
@@ -3454,8 +3700,11 @@ let toastT = 0;
 function toast(msg, ms = 1800) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), ms); }
 function refresh() {
   $('#empty').classList.toggle('hide', S.clips.length > 0);
+  document.body.classList.toggle('sem-projeto', !S.clips.length);
+  if (S.clips.length) sessionStorage.setItem('editando', '1'); else renderHome();
   if (S.sel && !(S.sel.type === 'clip' || S.sel.type === 'clipaudio' ? S.clips : S.sel.type === 'audio' ? S.audios : S.sel.type === 'layer' ? S.layers : S.captions).some((x) => x.id === S.sel.id)) S.sel = null;
   sizePreview(); renderTimeline(); renderToolbar(); updTime(); updPlay(); draw(); saveSoon();
+  if (S.clips.length > 1) ensureTransFrames();
 }
 
 // ---------- Tela cheia: assistir o vídeo em edição com play/pausa, tempo e barra de progresso ----------
@@ -3502,15 +3751,37 @@ const fsToggle = () => (E.playing ? pause() : play());
   $('#fs-close').onclick = (e) => { e.stopPropagation(); closeFs(); };
   $('#fs-back').onclick = (e) => { e.stopPropagation(); seekTo(Math.max(0, S.t - 5)); fsPoke(); };
   $('#fs-fwd').onclick = (e) => { e.stopPropagation(); seekTo(Math.min(total(), S.t + 5)); fsPoke(); };
-  // tocar no vídeo: mostra/esconde os controles; toque duplo: play/pausa
-  let lastTap = 0;
-  $('#fs-stage').addEventListener('click', () => {
+  // No vídeo (com eventos de ponteiro: no iPhone o "click" não dispara num elemento comum):
+  // toque mostra/esconde os controles · toque duplo = play/pausa · deslizar para os lados = avançar/voltar
+  // (a largura da tela inteira = o vídeo todo) · deslizar para baixo = sair da tela cheia
+  let lastTap = 0, sw = null;
+  const stg = $('#fs-stage');
+  stg.addEventListener('pointerdown', (e) => {
+    if (sw) return; sw = { id: e.pointerId, x: e.clientX, y: e.clientY, t0: S.t, mode: null, was: E.playing };
+    try { stg.setPointerCapture(e.pointerId); } catch {}
+  });
+  stg.addEventListener('pointermove', (e) => {
+    if (!sw || e.pointerId !== sw.id) return;
+    const dx = e.clientX - sw.x, dy = e.clientY - sw.y;
+    if (!sw.mode && Math.hypot(dx, dy) > 14) sw.mode = Math.abs(dx) > Math.abs(dy) ? 'seek' : 'vert';
+    if (sw.mode === 'seek') {
+      if (E.playing) pause();
+      S.t = clamp(sw.t0 + (dx / Math.max(1, stg.clientWidth)) * total(), 0, total()); draw(); updTime(); fsPoke();
+    }
+  });
+  const swEnd = (e) => {
+    if (!sw || e.pointerId !== sw.id) return;
+    const g = sw; sw = null; const dy = e.clientY - g.y;
+    if (g.mode === 'seek') { seekTo(S.t); if (g.was) play(); fsPoke(); return; }
+    if (g.mode === 'vert') { if (dy > 90) closeFs(); return; }
+    if (e.type === 'pointercancel') return;
     const n = performance.now();
-    if (n - lastTap < 300) { lastTap = 0; fsToggle(); return; }
+    if (n - lastTap < 300) { lastTap = 0; fsToggle(); fsPoke(); return; }
     lastTap = n;
     const fs = $('#fs');
     setTimeout(() => { if (!lastTap) return; if (fs.classList.contains('idle') || !E.playing) fsPoke(); else { clearTimeout(FSP.hideT); fs.classList.add('idle'); } }, 300);
-  });
+  };
+  stg.addEventListener('pointerup', swEnd); stg.addEventListener('pointercancel', swEnd);
   $('#fs').addEventListener('pointermove', (e) => { if (e.pointerType === 'mouse') fsPoke(); });
   document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement && FSP.on) closeFs(); });
   document.addEventListener('webkitfullscreenchange', () => { if (!document.webkitFullscreenElement && FSP.on) closeFs(); });
@@ -3530,7 +3801,7 @@ $('#btn-kf').onclick = () => (sheetKind === 'kf' ? closeSheet() : openKfSheet())
 $('#fs-close').innerHTML = ic('x');
 $('#fs-back').innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><text x="12" y="15.5" font-size="7" text-anchor="middle" fill="currentColor" stroke="none" font-weight="700">5</text></svg>';
 $('#fs-fwd').innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/><text x="12" y="15.5" font-size="7" text-anchor="middle" fill="currentColor" stroke="none" font-weight="700">5</text></svg>';
-$('#btn-new').innerHTML = ic('file');
+$('#btn-new').innerHTML = ic('home');
 $('#btn-galeria').innerHTML = ic('grid');
 $('#btn-undo').innerHTML = ic('undo');
 $('#btn-redo').innerHTML = ic('redo');
@@ -3538,6 +3809,14 @@ $('#sheet-close').innerHTML = ic('x');
 $('#btn-new').onclick = newProject;
 $('#btn-galeria').onclick = openGaleria;
 $('#btn-undo').onclick = undo;
+// Ctrl/Cmd+Z desfaz; Ctrl/Cmd+Shift+Z ou Ctrl+Y refaz (fora de campos de texto)
+document.addEventListener('keydown', (e) => {
+  if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+  const t = e.target; if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+  const k = e.key.toLowerCase();
+  if (k === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); }
+  else if (k === 'y') { e.preventDefault(); redo(); }
+});
 $('#btn-redo').onclick = redo;
 $('#btn-play').onclick = () => (E.playing ? (E.exporting ? null : pause()) : play());
 $('#btn-export').onclick = openExport;
@@ -3552,10 +3831,7 @@ document.fonts.ready.then(draw);
 ensureFonts().then(draw);
 loadCustomFonts().then(() => { try { draw(); } catch {} });
 try { navigator.storage?.persist?.(); } catch {}
-// versão do app: aparece pequena ao lado do nome, para conferir se atualizou
-const APP_VERSION = 31;
 loadTemplateFonts().then(() => { try { draw(); } catch {} });
-{ const b = document.querySelector('.brand-ver'); if (b) b.textContent = 'v' + APP_VERSION; }
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   // sempre procura a versão nova (sem usar cache) e recarrega sozinho quando ela chega
   const hadCtrl = !!navigator.serviceWorker.controller; let reloaded = false;
@@ -3600,6 +3876,69 @@ async function galeriaSalvar(meta = {}) {
   await sbReq('/rest/v1/projetos?on_conflict=owner,id', { method: 'POST', headers: { 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify({ id, data: galeria }) });
   dbPut('project', obj);
   return { id, link: linkProjeto(id) };
+}
+// Projeto novo: "Projeto 001", "Projeto 002"… com a data em que foi começado
+async function criarProjetoAuto() {
+  if (galeria || !(await sbSessao())) return;
+  try {
+    const itens = await galeriaListar().catch(() => []);
+    const numero = itens.reduce((mx, i) => Math.max(mx, +i.numero || +(/^Projeto (\d+)/.exec(i.titulo || '') || [])[1] || 0), 0) + 1;
+    await galeriaSalvar({ titulo: 'Projeto ' + String(numero).padStart(3, '0'), numero });
+    homeItens = null;
+  } catch (e) { console.warn('projeto automático', e); }
+}
+async function galeriaApagar(id) {
+  const it = (await (await sbReq(`/rest/v1/projetos?id=eq.${encodeURIComponent(id)}&select=data`)).json())[0]?.data;
+  if (it?.arquivo) {
+    try { const p = await (await sbReq(`/storage/v1/object/projetos/${it.arquivo}`)).json(); for (const k of arquivosDo(p)) await dbDel(k); } catch {}
+    await sbReq('/storage/v1/object/projetos', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prefixes: [it.arquivo, it.thumb].filter(Boolean) }) }).catch(() => {});
+  }
+  await sbReq(`/rest/v1/projetos?id=eq.${encodeURIComponent(id)}`, { method: 'DELETE', headers: { Prefer: 'return=minimal' } });
+  if (galeria?.id === id) galeria = null;
+}
+async function galeriaRenomear(id, titulo) {
+  const it = (await (await sbReq(`/rest/v1/projetos?id=eq.${encodeURIComponent(id)}&select=data`)).json())[0]?.data; if (!it) return;
+  await sbReq('/rest/v1/projetos?on_conflict=owner,id', { method: 'POST', headers: { 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify({ id, data: { ...it, titulo } }) });
+  if (galeria?.id === id) galeria.titulo = titulo;
+}
+// Tela inicial: sem projeto aberto, a área da linha do tempo mostra a galeria (arraste para o lado para ver todos)
+let homeItens = null, homeCarregando = false;
+const dataBR = (iso) => iso ? new Date(iso).toLocaleDateString('pt-BR') : '';
+async function renderHome() {
+  const el = $('#home'); if (!el) return;
+  if (!(await conta.sessao().catch(() => null))) { el.innerHTML = '<p class="home-nota">Entre na sua conta para ver seus projetos salvos.</p>'; return; }
+  if (!homeItens) {
+    if (homeCarregando) return; homeCarregando = true;
+    el.innerHTML = '<p class="home-nota">Carregando seus projetos…</p>';
+    try { homeItens = await galeriaListar(); } catch (e) { el.innerHTML = `<p class="home-nota">${esc(e.message)}</p>`; return; } finally { homeCarregando = false; }
+    if (S.clips.length) return;
+  }
+  el.innerHTML = `<div class="home-head"><b>Seus projetos</b><span>${homeItens.length ? homeItens.length + (homeItens.length > 1 ? ' projetos' : ' projeto') : ''}</span></div>` + (homeItens.length
+    ? `<div class="home-strip">${homeItens.map((i) => `<div class="home-card" data-hp="${esc(i.id)}">
+        <button class="home-abrir" data-abrir="${esc(i.id)}">${i.thumbUrl ? `<img src="${esc(i.thumbUrl)}" alt="" loading="lazy">` : '<div class="gl-sem"></div>'}</button>
+        <div class="home-info"><b>${esc(i.titulo || 'Sem título')}</b><span>${esc(dataBR(i.criadoEm || i.atualizadoEm))}</span></div>
+        <button class="home-mais" data-mais="${esc(i.id)}" aria-label="Opções do projeto">${ic('more')}</button></div>`).join('')}</div>`
+    : '<p class="home-nota">Seus projetos aparecem aqui. Toque em “Adicionar vídeo ou foto” para começar: o projeto é salvo sozinho.</p>');
+  el.querySelectorAll('[data-abrir]').forEach((b) => b.onclick = async () => { toast('Abrindo projeto…', 60000); try { await galeriaAbrir(b.dataset.abrir); } catch (e) { toast(e.message, 4000); } });
+  el.querySelectorAll('[data-mais]').forEach((b) => b.onclick = () => homeOpcoes(homeItens.find((i) => i.id === b.dataset.mais)));
+}
+function homeOpcoes(it) {
+  if (!it) return;
+  openSheet('projeto', it.titulo || 'Projeto', `
+    <p class="note">Começado em ${esc(dataBR(it.criadoEm))}${it.atualizadoEm ? ' · última mudança em ' + esc(dataBR(it.atualizadoEm)) : ''}${it.duracao ? ' · ' + esc(fmt(it.duracao)) : ''}</p>
+    <button class="btn primary" id="hp-abrir">${inlineIc('edit')} Editar</button>
+    <button class="btn" id="hp-nome">Renomear</button>
+    <button class="btn danger" id="hp-apagar">${inlineIc('trash')} Apagar projeto</button>`, (b) => {
+    $('#hp-abrir', b).onclick = async () => { closeSheet(); toast('Abrindo projeto…', 60000); try { await galeriaAbrir(it.id); } catch (e) { toast(e.message, 4000); } };
+    $('#hp-nome', b).onclick = async () => {
+      const t = prompt('Nome do projeto:', it.titulo || ''); if (!t || !t.trim()) return;
+      try { await galeriaRenomear(it.id, t.trim()); homeItens = null; closeSheet(); renderHome(); } catch (e) { toast(e.message, 3000); }
+    };
+    $('#hp-apagar', b).onclick = async () => {
+      if (!confirm(`Apagar “${it.titulo || 'projeto'}”? A edição e os vídeos guardados neste aparelho para ele somem e não dá para desfazer.`)) return;
+      try { toast('Apagando…', 20000); await galeriaApagar(it.id); homeItens = null; closeSheet(); toast('Projeto apagado', 1500); renderHome(); } catch (e) { toast(e.message, 3000); }
+    };
+  });
 }
 let galT = 0;
 function galeriaSalvarSoon() { clearTimeout(galT); galT = setTimeout(() => galeriaSalvar().catch((e) => console.warn('galeria', e.message)), 5000); }
@@ -3647,7 +3986,7 @@ async function galeriaAbrir(id) {
   if (galeria) { try { clearTimeout(galT); await galeriaSalvar(); } catch {} }
   const atual = await dbGet('project');   // projeto aberto que não está na galeria: guarda uma cópia antes de trocar
   if (atual?.media?.length && !atual.galeria) await dbPut('backup-' + new Date().toISOString().replace(/[:.]/g, '-'), atual);
-  await dbPut('project', p);
+  await dbPut('project', p); sessionStorage.setItem('editando', '1');
   const u = new URL(location.href); u.searchParams.delete('projeto'); history.replaceState(null, '', u);
   location.reload(); return true;
 }
@@ -3655,7 +3994,14 @@ async function openGaleria() {
   openSheet('galeria', 'Projetos', `
     <button class="btn primary" id="gl-salvar">${inlineIc('plus')} ${galeria ? 'Salvar agora na galeria' : 'Salvar este projeto na galeria'}</button>
     ${galeria ? `<p class="note">Aberto: <b>${esc(galeria.titulo || 'Sem título')}</b>. As mudanças vão para a galeria sozinhas.${galeria.video ? ` <a href="${esc(galeria.video)}" target="_blank" rel="noopener">Ver vídeo exportado</a>` : ''}</p>` : ''}
+    ${S.clips.length ? `<div class="sec">Versões deste projeto</div>
+    <p class="note">Cada exportação guarda uma versão. Volte a uma delas para refazer um ajuste sem perder o que veio depois (o estado atual também fica guardado).</p>
+    <button class="btn" id="gl-versao">${inlineIc('plus')} Guardar versão agora</button>
+    <div class="ver-lista">${versoes.length ? versoes.map((v) => `<div class="ver-row"><div><b>${esc(v.nome)}</b><span>${esc(new Date(v.em).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }))}</span></div><button class="chip" data-ver="${esc(v.id)}">Voltar</button></div>`).join('') : '<p class="note">Nenhuma versão ainda.</p>'}</div>
+    <div class="sec">Todos os projetos</div>` : ''}
     <div id="gl-lista"><p class="note">Carregando…</p></div>`, async (b) => {
+    const gv = $('#gl-versao', b); if (gv) gv.onclick = () => { const n = prompt('Nome da versão:', 'Versão ' + (versoes.length + 1)); if (n === null) return; salvarVersao(n.trim() || 'Versão'); openGaleria(); };
+    b.querySelectorAll('[data-ver]').forEach((el) => el.onclick = () => { if (confirm('Voltar para esta versão? O estado atual fica guardado como “Antes de voltar”.')) { voltarVersao(el.dataset.ver); closeSheet(); } });
     $('#gl-salvar', b).onclick = async () => {
       if (!S.clips.length) return toast('Abra um vídeo primeiro');
       let titulo = galeria?.titulo; if (!titulo) { titulo = prompt('Nome do projeto:', 'Projeto ' + new Date().toLocaleDateString('pt-BR')); if (!titulo) return; }

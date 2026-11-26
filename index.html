@@ -15,7 +15,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Montserrat:wght@400;600;700;800&family=Poppins:wght@400;500;600;700;800&family=Anton&family=Great+Vibes&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=31">
+<link rel="stylesheet" href="styles.css?v=32">
 <title>Meu Editor</title>
 </head>
 <body>
@@ -23,15 +23,13 @@
   <header id="top">
     <div class="brand">
       <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4 8.12 15.88M14.47 14.48 20 20M8.12 8.12 12 12"/></svg></span>
-      <span class="brand-txt"><span class="brand-name">Meu Editor</span><span class="brand-ver"></span></span>
+      <span class="brand-txt"><span class="brand-name">Meu Editor</span></span>
     </div>
     <div class="top-acts">
-      <button id="btn-undo" class="icon" aria-label="Desfazer"></button>
-      <button id="btn-redo" class="icon" aria-label="Refazer"></button>
       <button id="btn-ia" class="ia-btn" aria-label="Editar com IA"></button>
       <button id="btn-galeria" class="icon" aria-label="Projetos"></button>
       <button id="btn-config" class="icon" aria-label="Configurações"></button>
-      <button id="btn-new" class="icon" aria-label="Novo projeto"></button>
+      <button id="btn-new" class="icon" aria-label="Salvar e voltar ao início" title="Salvar e voltar ao início"></button>
       <button id="btn-export" class="primary">Exportar</button>
     </div>
   </header>
@@ -51,7 +49,7 @@
   <div id="transport">
     <span id="time">00:00.0 / 00:00.0</span>
     <button id="btn-play" class="play" aria-label="Reproduzir"></button>
-    <div class="tright"><button id="btn-kf" class="icon" aria-label="Keyframes do item selecionado" title="Keyframes"></button><button id="btn-fs" class="icon" aria-label="Assistir em tela cheia" title="Tela cheia"></button></div>
+    <div class="tright"><button id="btn-undo" class="icon" aria-label="Desfazer" title="Desfazer (Ctrl+Z)"></button><button id="btn-redo" class="icon" aria-label="Refazer" title="Refazer (Ctrl+Shift+Z)"></button><button id="btn-kf" class="icon" aria-label="Keyframes do item selecionado" title="Keyframes"></button><button id="btn-fs" class="icon" aria-label="Assistir em tela cheia" title="Tela cheia"></button></div>
   </div>
 
   <section id="timeline">
@@ -66,6 +64,7 @@
       </div>
     </div>
     <div id="playhead"></div>
+    <div id="home"></div>
   </section>
 
   <nav id="toolbar"></nav>
@@ -100,6 +99,6 @@
 <input type="file" id="file-video" accept="video/*,image/*" multiple hidden>
 <input type="file" id="file-layer" accept="image/*,video/*" multiple hidden>
 <input type="file" id="file-audio" accept="video/*,audio/*" hidden>
-<script type="module" src="app.js?v=31"></script>
+<script type="module" src="app.js?v=32"></script>
 </body>
 </html>

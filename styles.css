@@ -305,7 +305,13 @@ video.result { width: 100%; max-height: 30dvh; border-radius: var(--r-sm); backg
 .fs-mid .icon { background: transparent; border-color: transparent; width: 44px; height: 44px; }
 .fs-mid .icon svg { width: 24px; height: 24px; }
 #fs.idle { cursor: none; }
-#fs.idle .fs-top, #fs.idle .fs-bottom { opacity: 0; pointer-events: none; }
+#fs.idle .fs-bottom { opacity: 0; pointer-events: none; }
+#fs.idle .fs-title { opacity: 0; }
+/* o X fica sempre visível e tocável; o vídeo recebe toque e arrasto direto (sem rolagem do navegador) */
+#fs-stage { touch-action: none; cursor: pointer; -webkit-user-select: none; user-select: none; }
+#fs-stage #preview { touch-action: none; }
+.fs-top { pointer-events: none; }
+.fs-top .icon { pointer-events: auto; }
 #fs.idle .fs-bottom { transform: translateY(10px); }
 
 @media (max-width: 420px) {
@@ -421,3 +427,68 @@ body.sheet-open #btn-kf.ready { background: var(--accent); border-color: var(--a
 .fmt svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
 .fmt.on { background: #fff; color: #000; border-color: #fff; }
 .fmt-sep { width: 1px; height: 26px; background: var(--line-2); margin: 0 4px; }
+
+/* desfazer e refazer ao lado dos keyframes; o play continua no centro */
+#transport { display: grid; grid-template-columns: 1fr auto 1fr; }
+#time { justify-self: start; }
+.tright { width: auto; justify-self: end; gap: 6px; }
+@media (max-width: 440px) {
+  #transport { padding-left: 10px; padding-right: 10px; gap: 8px; }
+  #time { width: auto; padding: 7px 9px; font-size: 11px; }
+  .tright { gap: 3px; }
+  .tright .icon { width: 32px; height: 32px; }
+  .tright .icon svg { width: 16px; height: 16px; }
+}
+
+/* ---------- tela inicial: galeria de projetos na área da linha do tempo ---------- */
+#home { display: none; }
+body.sem-projeto #tl-scroll, body.sem-projeto #playhead { display: none; }
+body.sem-projeto #home { display: block; padding: 10px 0 12px; min-height: 196px; }
+.home-head { display: flex; align-items: baseline; justify-content: space-between; padding: 0 16px 8px; font-size: 13px; }
+.home-head span { font-size: 11px; color: var(--ink-3); }
+.home-nota { padding: 14px 16px; font-size: 12px; color: var(--ink-3); }
+.home-strip { display: flex; gap: 10px; overflow-x: auto; padding: 0 16px 4px; scroll-snap-type: x proximity; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+.home-strip::-webkit-scrollbar { display: none; }
+.home-card { position: relative; flex: 0 0 92px; scroll-snap-align: start; }
+.home-abrir { display: block; width: 92px; padding: 0; border-radius: 10px; overflow: hidden; border: 1.5px solid var(--line); background: #000; }
+.home-abrir img, .home-abrir .gl-sem { display: block; width: 100%; aspect-ratio: 9 / 16; object-fit: cover; background: linear-gradient(160deg, #2a1d44, #120c1d); }
+.home-info { padding: 5px 2px 0; }
+.home-info b { display: block; font-size: 11px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.home-info span { font-size: 10px; color: var(--ink-3); }
+.home-mais { position: absolute; top: 5px; right: 5px; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; background: rgba(0, 0, 0, .55); color: #fff; backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+.home-mais svg { width: 14px; height: 14px; fill: currentColor; }
+@media (min-width: 900px) { .home-card { flex-basis: 110px; } .home-abrir { width: 110px; } .home-head, .home-strip, .home-nota { padding-left: 24px; padding-right: 24px; } }
+.btn.danger { color: var(--danger); }
+.ver-lista { display: flex; flex-direction: column; gap: 6px; margin: 6px 0 10px; }
+.ver-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; border-radius: var(--r-xs); background: var(--glass); border: 1px solid var(--line); }
+.ver-row b { display: block; font-size: 12px; font-weight: 600; }
+.ver-row span { font-size: 11px; color: var(--ink-3); }
+
+/* ---------- galeria de transições ---------- */
+.trg-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(68px, 1fr)); gap: 8px; margin: 6px 0 4px; }
+.trg-card { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 0; background: none; border: 0; color: var(--ink-2); font: 500 10.5px var(--font); cursor: pointer; }
+.trg-card canvas, .trg-none { width: 100%; aspect-ratio: 9 / 16; border-radius: 10px; background: #000; border: 2px solid var(--line); display: block; }
+.trg-none { display: grid; place-items: center; background: var(--glass); color: var(--ink-3); }
+.trg-none svg { width: 18px; height: 18px; }
+.trg-card span { max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.trg-card.on canvas, .trg-card.on .trg-none { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(155, 92, 255, .3); }
+.trg-card.on span { color: var(--ink); font-weight: 600; }
+.trg-none-wrap { display: contents; }
+#tr-edit:empty { display: none; }
+.tr-box { padding: 10px 12px; border-radius: var(--r-xs); background: rgba(155, 92, 255, .1); border: 1px solid rgba(155, 92, 255, .4); margin-bottom: 10px; }
+.tr-box-h { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+.tr-box select { max-width: 60%; }
+.tr.on { background: #b48cff; color: #fff; }
+@media (min-width: 900px) { .trg-grid { grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)); } }
+/* tela inicial: sem barra de reprodução; o cartão cabe no espaço que sobra (e encolhe em telas baixas) */
+body.sem-projeto #transport { display: none; }
+body.sem-projeto #preview { visibility: hidden; }
+body.sem-projeto #stage { overflow: hidden; }
+body.sem-projeto #empty { overflow: auto; }
+@media (max-height: 760px) {
+  body.sem-projeto .empty-card { padding: 18px 18px 16px; }
+  body.sem-projeto .empty-ic { width: 46px; height: 46px; margin-bottom: 10px; }
+  body.sem-projeto .empty-ic svg { width: 22px; height: 22px; }
+  body.sem-projeto .empty-card h2 { font-size: 20px; }
+  body.sem-projeto .empty-card p { margin-bottom: 14px; font-size: 13px; }
+}
