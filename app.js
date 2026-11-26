@@ -409,8 +409,10 @@ function syncVideos(t) {
   const L = layout(); if (!L.length) return null;
   const r = clipAt(t, L), idx = r.i;
   const s = clamp(srcAt(r, t), r.clip.in, Math.max(r.clip.in, r.clip.out - 0.02));
-  let v = pool.find((x) => x._clipId === r.clip.id);
-  if (!v) { v = pool.find((x) => x !== activeV) || pool[0]; assign(v, r.clip, s); }
+  const still = stills.get(r.clip.mediaId);
+  let v = still || pool.find((x) => x._clipId === r.clip.id);
+  if (still) still._clipId = r.clip.id;
+  else if (!v) { v = pool.find((x) => x !== activeV) || pool[0]; assign(v, r.clip, s); }
   if (v !== activeV) { if (activeV) activeV.pause(); activeV = v; }
   const pr = spd(r.clip) * (E.rate || 1); if (v.playbackRate !== pr) v.playbackRate = pr;
   if (E.playing && !E.stalled) {
@@ -420,8 +422,8 @@ function syncVideos(t) {
     if (!v.paused) v.pause();
     if (!v.seeking && v._pending == null && Math.abs(v.currentTime - s) > 0.04) v.currentTime = s;
   }
-  const nr = L[idx + 1], other = pool.find((x) => x !== v);
-  if (nr && other._clipId !== nr.clip.id) { other.pause(); assign(other, nr.clip, nr.clip.in); }
+  const nr = L[idx + 1], other = pool.find((x) => x !== v && x !== activeV) || pool.find((x) => x !== v);
+  if (nr && !stills.has(nr.clip.mediaId) && other._clipId !== nr.clip.id) { other.pause(); assign(other, nr.clip, nr.clip.in); }
   return { r, s, v };
 }
 const isReady = (st) => st && st.v._clipId === st.r.clip.id && !st.v.seeking && st.v._pending == null && st.v.readyState >= 2;
@@ -436,7 +438,7 @@ function render(ctx, W, H, t, st, pre = false) {
 let stillPreview = false; // prévia parada: textos de modelo aparecem completos para editar
 function renderFrame(ctx, W, H, t, r, v, pre = false) {
   stillPreview = pre && !E.playing;
-  ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = v.isStill ? '#fff' : '#000'; ctx.fillRect(0, 0, W, H);
   const vw = v.videoWidth, vh = v.videoHeight;
   if (vw && vh) {
     // keyframes do clipe: posição, escala, rotação e opacidade (somados ao zoom)
@@ -920,25 +922,48 @@ function mergeCaption(id) {
 }
 
 // ---------- Importação ----------
+const isImgFile = (f) => /^image\//.test(f.type) || /\.(png|jpe?g|gif|webp|heic|heif|avif|bmp)$/i.test(f.name);
+const IMG_DUR = 3;      // duração inicial de uma foto na trilha principal (s)
+const IMG_MAX = 600;    // dá para esticar a foto até 10 min
 async function importVideos(files) {
-  ac(); let warned = false;
+  ac(); let warned = false, nImg = 0, nVid = 0;
   for (const f of files) {
     toast(`Carregando ${f.name}…`, 60000);
     try {
       const m = await loadMedia(f);
       commit();
       media.set(m.id, m);
-      if (!S.aspect) S.aspect = m.w / m.h;
-      S.clips.push(normClip({ id: uid(), mediaId: m.id, in: 0, out: m.duration, transition: S.clips.length ? newClipTransition() : 'none', volume: 1 }));
-      if (!m.bufferId) { warned = true; toast('Vídeo adicionado, mas não consegui ler o áudio dele', 4000); }
+      if (!S.aspect) S.aspect = m.isImg ? 9 / 16 : m.w / m.h;
+      S.clips.push(normClip({ id: uid(), mediaId: m.id, in: 0, out: m.isImg ? IMG_DUR : m.duration, transition: S.clips.length ? newClipTransition() : 'none', volume: 1 }));
+      if (m.isImg) nImg++; else nVid++;
+      if (!m.bufferId && !m.isImg) { warned = true; toast('Vídeo adicionado, mas não consegui ler o áudio dele', 4000); }
       dbPut('file:' + m.id, f);
     } catch (e) { console.error(e); warned = true; toast('Não consegui abrir ' + f.name + ': ' + e.message, 4000); }
   }
-  if (!warned) toast('Vídeo adicionado', 1200);
+  if (!warned) toast(nImg && !nVid ? (nImg > 1 ? 'Fotos adicionadas' : 'Foto adicionada') + ' (3 s cada; arraste a borda para mudar)' : nImg ? 'Vídeos e fotos adicionados' : 'Vídeo adicionado', 2200);
   refresh();
+}
+// ---------- Fotos na trilha principal ----------
+// Uma foto (JPG, PNG…) vira um "player" parado: um canvas já com fundo branco (PNG transparente fica sobre branco)
+// que se comporta como um <video> pronto, então prévia, keyframes, zoom, cor e exportação funcionam igual.
+const stills = new Map(); // mediaId -> canvas
+function makeStill(id, img, w, h) {
+  const k = Math.min(1, 4096 / Math.max(w, h)), cw = Math.max(1, Math.round(w * k)), ch = Math.max(1, Math.round(h * k));
+  const c = document.createElement('canvas'); c.width = cw; c.height = ch;
+  const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, cw, ch); x.drawImage(img, 0, 0, cw, ch);
+  Object.assign(c, { videoWidth: cw, videoHeight: ch, readyState: 4, seeking: false, paused: true, _pending: null, _clipId: null, playbackRate: 1, currentTime: 0, isStill: true });
+  c.play = () => Promise.resolve(); c.pause = () => {}; c.requestVideoFrameCallback = () => 0;
+  stills.set(id, c); return c;
 }
 async function loadMedia(file, id = uid()) {
   const url = URL.createObjectURL(file);
+  if (isImgFile(file)) {
+    const img = new Image(); img.src = url;
+    await new Promise((res, rej) => { img.onload = res; img.onerror = () => rej(new Error('imagem não suportada')); });
+    const w = img.naturalWidth || 1080, h = img.naturalHeight || 1920, st = makeStill(id, img, w, h);
+    const tc = document.createElement('canvas'), th = 112; tc.height = th; tc.width = Math.round(th * w / h); tc.getContext('2d').drawImage(st, 0, 0, tc.width, th);
+    return { id, name: file.name, url, duration: IMG_MAX, w, h, bufferId: null, thumb: tc.toDataURL('image/jpeg', 0.7), isImg: true };
+  }
   const v = document.createElement('video'); v.muted = true; v.playsInline = true; v.preload = 'auto'; v.src = url;
   await new Promise((res, rej) => { v.onloadedmetadata = res; v.onerror = () => rej(new Error('formato não suportado')); });
   const m = { id, name: file.name, url, duration: v.duration, w: v.videoWidth || 1080, h: v.videoHeight || 1920, bufferId: null, thumb: null };
@@ -3014,6 +3039,16 @@ async function exportFrames(res, codecs) {
 
   for (let ci = 0; ci < L.length && !ex.cancelled; ci++) {
     const r = L[ci], c = r.clip;
+    const still = stills.get(c.mediaId);
+    if (still) {
+      // foto: o mesmo quadro, gravado em partes para não lotar o codificador
+      still._clipId = c.id; activeV = still;
+      const nr = L[ci + 1];
+      if (nr && !stills.has(nr.clip.mediaId)) { const o = pool[0]; o.pause(); assign(o, nr.clip, nr.clip.in); }
+      while (k < total_frames && k / FPS < r.end - 1e-3 && !ex.cancelled && !encErr) { await emitUpTo(Math.min(r.end - 1e-3, k / FPS + 0.5), r, still); await drain(); }
+      if (encErr) throw encErr;
+      continue;
+    }
     let v = pool.find((x) => x._clipId === c.id) || pool.find((x) => x !== activeV) || pool[0];
     if (v._clipId !== c.id) assign(v, c, c.in);
     activeV = v; v.pause();
@@ -3412,7 +3447,7 @@ async function restoreProject() {
 }
 async function newProject() {
   if (S.clips.length && !confirm('Começar um projeto novo? O atual será apagado.')) return;
-  pause(); galeria = null; S.clips = []; S.audios = []; S.layers = []; S.zooms = []; images.forEach((im) => URL.revokeObjectURL(im.url)); images.clear(); S.captions = []; S.words = {}; S.aspect = null; S.t = 0; S.sel = null; S.origVolume = 1;
+  pause(); galeria = null; S.clips = []; S.audios = []; S.layers = []; S.zooms = []; images.forEach((im) => URL.revokeObjectURL(im.url)); images.clear(); stills.clear(); S.captions = []; S.words = {}; S.aspect = null; S.t = 0; S.sel = null; S.origVolume = 1;
   media.forEach((m) => URL.revokeObjectURL(m.url)); media.clear(); buffers.clear(); hist.past = []; hist.future = [];
   pool.forEach((v) => { v._clipId = null; v._url = null; v.removeAttribute('src'); v.load(); });
   try { await dbOp('readwrite', (s) => s.clear()); } catch {}
@@ -3525,7 +3560,7 @@ ensureFonts().then(draw);
 loadCustomFonts().then(() => { try { draw(); } catch {} });
 try { navigator.storage?.persist?.(); } catch {}
 // versão do app: aparece pequena ao lado do nome, para conferir se atualizou
-const APP_VERSION = 27;
+const APP_VERSION = 29;
 loadTemplateFonts().then(() => { try { draw(); } catch {} });
 { const b = document.querySelector('.brand-ver'); if (b) b.textContent = 'v' + APP_VERSION; }
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
@@ -3811,7 +3846,7 @@ async function pedirReceita(F) {
   const kit = kitDe(await conta.perfil().catch(() => null)); delete kit.logo;
   const corpo = {
     formulario: { formato: F.formato, objetivo: F.objetivo, ideia: F.ideia, roteiro: F.roteiro, motion: F.motion, duracao_alvo_s: F.duracao || null },
-    kit, transcricao, duracao_bruta: +[...new Set(S.clips.map((c) => c.mediaId))].reduce((t, m) => t + (media.get(m)?.duration || 0), 0).toFixed(1),
+    kit, transcricao, duracao_bruta: +[...new Set(S.clips.map((c) => c.mediaId))].reduce((t, m) => t + (media.get(m)?.isImg ? 0 : media.get(m)?.duration || 0), 0).toFixed(1),
     opcoes: {
       modelos_legenda: ['impacto', 'elegante', 'editorial', 'simples'], fontes: FONTS.map((f) => f.id),
       sons: (sfxIndex || []).map((x) => x.name),
