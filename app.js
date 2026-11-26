@@ -7,7 +7,7 @@ import { ANIM_GROUPS, presetsOf, presetByName, animLabel, SPLIT_LABEL, layerPhas
 import * as conta from './conta.js?v=25b';
 import { criarAgente } from './agente.js?v=26';
 import * as RT from './textorico.js?v=28';
-import { TRANSITIONS, TR_CATS, trById, drawTransition, drawFilmBurn, sampleFrames } from './transicoes.js?v=32';
+import { TRANSITIONS, TR_CATS, trById, drawTransition, drawFilmBurn, sampleFrames } from './transicoes.js?v=35';
 const seedOf = (id) => { let h = 7; for (const c of String(id)) h = (h * 31 + c.charCodeAt(0)) >>> 0; return h % 100000; };
 
 const $ = (s, el = document) => el.querySelector(s);
@@ -33,6 +33,7 @@ const ICONS = {
   home: '<path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/>',
   trans: '<rect x="3" y="5" width="11" height="14" rx="2"/><path d="M14 8h5a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-5"/><path d="M10 9l3 3-3 3"/>',
   search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
+  star: '<path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/>',
   more: '<circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/>',
   left: '<path d="m15 18-6-6 6-6"/>',
   right: '<path d="m9 18 6-6-6-6"/>',
@@ -150,7 +151,7 @@ const cuts = (L = layout()) => L.filter((r) => r.i > 0 && r.clip.transition && r
 // duração da transição do corte antes do clipe r (centrada no corte: metade em cada clipe, sem passar do tamanho deles)
 function trDurOf(r, L = layout()) {
   const c = r.clip, tp = c.transition;
-  const d = c.trDur ?? (tp === 'flash' ? S.fx.flashDur : tp === 'burn' ? S.fx.burnDur : trById(tp)?.dur ?? 0.5);
+  const d = c.trDur ?? (tp === 'flash' ? S.fx.flashDur : trById(tp)?.dur ?? 0.5);
   const prev = L[r.i - 1]; return Math.max(0.1, Math.min(d, 2 * (r.end - r.start), prev ? 2 * (prev.end - prev.start) : d));
 }
 function capSpans(L = layout()) {
@@ -1146,29 +1147,41 @@ function openTransitions() {
   const r = layout()[1]; if (!r) return toast('Adicione outro vídeo ou divida o clipe para ter um corte');
   openCutSheet(r.clip.id);
 }
-let trAnim = 0, trPrevStop = 0;
-function trThumbs(i) {
-  // quadros da miniatura: miniaturas dos dois clipes do corte (ou imagens de exemplo)
-  const W = 90, H = 160, mk = (src) => new Promise((ok) => {
-    if (!src) return ok(null);
-    const im = new Image(); im.onload = () => {
-      const c = document.createElement('canvas'); c.width = W; c.height = H; const x = c.getContext('2d');
-      const k = Math.max(W / im.width, H / im.height), w = im.width * k, h = im.height * k; x.drawImage(im, (W - w) / 2, (H - h) / 2, w, h); ok(c);
-    }; im.onerror = () => ok(null); im.src = src;
-  });
-  const a = media.get(S.clips[i - 1]?.mediaId)?.thumb, b = media.get(S.clips[i]?.mediaId)?.thumb, [sa, sb] = sampleFrames(W, H);
-  return Promise.all([mk(a), mk(b)]).then(([x, y]) => (x && y && a !== b ? [x, y] : [sa, sb]));
+let trAnim = 0, trPrevStop = 0, trReord = 0;
+// Imagens das miniaturas: um par diferente para cada tipo de transição (fotos em previews/<tipo>-a.jpg e -b.jpg;
+// enquanto não houver foto, usa cenas desenhadas aqui mesmo)
+const TR_PICS = { 'Básicas': 'basicas', 'Movimento': 'movimento', 'Zoom': 'zoom', 'Formas': 'formas', 'Efeitos': 'efeitos' };
+const trPicCache = new Map();
+function trPics(cat) {
+  if (trPicCache.has(cat)) return trPicCache.get(cat);
+  const W = 90, H = 160, base = TR_PICS[cat] || 'basicas';
+  const fit = (im) => { const c = document.createElement('canvas'); c.width = W; c.height = H; const x = c.getContext('2d'); const k = Math.max(W / im.width, H / im.height), w = im.width * k, h = im.height * k; x.drawImage(im, (W - w) / 2, (H - h) / 2, w, h); return c; };
+  const load = (src) => new Promise((ok) => { const im = new Image(); im.onload = () => ok(fit(im)); im.onerror = () => ok(null); im.src = src; });
+  const pr = Promise.all([load(`previews/${base}-a.jpg`), load(`previews/${base}-b.jpg`)]).then(([a, b]) => (a && b ? [a, b] : sampleFrames(W, H, cat)));
+  trPicCache.set(cat, pr); return pr;
+}
+// Favoritos: sobem para o topo, o mais recente primeiro
+const trFavs = () => { try { return JSON.parse(localStorage.getItem('tr-fav') || '[]'); } catch { return []; } };
+function trFavToggle(id) {
+  let f = trFavs(); const on = f.some((x) => x.id === id);
+  f = on ? f.filter((x) => x.id !== id) : [{ id, em: Date.now() }, ...f];
+  try { localStorage.setItem('tr-fav', JSON.stringify(f)); } catch {}
+  return !on;
+}
+function trOrdenadas() {
+  const f = trFavs().sort((a, b) => b.em - a.em), favIds = f.map((x) => x.id);
+  return [...favIds.map(trById).filter(Boolean), ...TRANSITIONS.filter((t) => !favIds.includes(t.id))];
 }
 function openCutSheet(clipId, editar = false) {
   const i = S.clips.findIndex((c) => c.id === clipId);
   if (i <= 0) return openTransitions();
   const c = S.clips[i];
-  const card = (t) => `<button class="trg-card ${c.transition === t.id ? 'on' : ''}" data-tr="${t.id}"><canvas data-trc="${t.id}"></canvas><span>${esc(t.name)}</span></button>`;
+  const favs = new Set(trFavs().map((x) => x.id));
+  const card = (t) => `<div class="trg-card ${c.transition === t.id ? 'on' : ''}"><button class="trg-pick" data-tr="${t.id}"><canvas data-trc="${t.id}"></canvas><span>${esc(t.name)}</span></button><button class="trg-fav ${favs.has(t.id) ? 'on' : ''}" data-fav="${t.id}" aria-label="Favoritar ${esc(t.name)}">${ic('star')}</button></div>`;
   openSheet('cut', 'Transições', `
     <div id="tr-edit"></div>
-    <div class="trg-grid"><button class="trg-card none ${c.transition === 'none' ? 'on' : ''}" data-tr="none"><div class="trg-none">${ic('x')}</div><span>Nenhuma</span></button></div>
-    ${TR_CATS.map((cat) => `<div class="sec">${esc(cat)}</div><div class="trg-grid">${TRANSITIONS.filter((t) => t.cat === cat).map(card).join('')}</div>`).join('')}
-    <p class="note">Toque para colocar no corte. Toque de novo na mesma transição para ajustar a duração e o som.</p>`, (b) => {
+    <div class="trg-grid"><div class="trg-card ${c.transition === 'none' ? 'on' : ''}"><button class="trg-pick" data-tr="none"><div class="trg-none">${ic('x')}</div><span>Nenhuma</span></button></div>${trOrdenadas().map(card).join('')}</div>
+    <p class="note">Toque para colocar no corte; toque de novo na mesma para ajustar duração e som. A estrela favorita: as favoritas ficam no começo da lista.</p>`, (b) => {
     const edit = $('#tr-edit', b);
     const showEdit = () => {
       if (c.transition === 'none') { edit.innerHTML = ''; return; }
@@ -1229,22 +1242,28 @@ function openCutSheet(clipId, editar = false) {
       const id = el.dataset.tr;
       if (id === c.transition && id !== 'none') { showEdit(); edit.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); return; }
       commit(); c.transition = id; delete c.trDur; delete c.trSnd; delete c.trDb;
-      b.querySelectorAll('[data-tr]').forEach((x) => x.classList.toggle('on', x === el));
+      b.querySelectorAll('.trg-card').forEach((x) => x.classList.toggle('on', x.contains(el)));
       edit.innerHTML = ''; renderTimeline(); ensureTransFrames();
       const k = soundKey(c); if (k && !k.startsWith('@')) sfxBuffer(k).catch(() => {});
       if (id !== 'none') verCorte(); else draw();
     });
+    b.querySelectorAll('[data-fav]').forEach((el) => el.onclick = (e) => {
+      e.stopPropagation(); const on = trFavToggle(el.dataset.fav); el.classList.toggle('on', on);
+      toast(on ? 'Favoritada: vai para o começo da lista' : 'Tirada dos favoritos', 1600);
+      clearTimeout(trReord); trReord = setTimeout(() => { if (sheetKind === 'cut') { const st = b.scrollTop; openCutSheet(clipId); const nb = $('#sheet-body'); if (nb) nb.scrollTop = st; } }, 900);
+    });
     loadSfxIndex().then(() => { if (editar) showEdit(); });
     // miniaturas animadas: 0,4 s no clipe A, a transição, 0,5 s no clipe B
-    trThumbs(i).then(([A, B]) => {
-      const cvs = [...b.querySelectorAll('canvas[data-trc]')].map((cv) => { cv.width = 90; cv.height = 160; return { cv, x: cv.getContext('2d'), def: trById(cv.dataset.trc) }; });
+    Promise.all(TR_CATS.map((cat) => trPics(cat).then((p) => [cat, p]))).then((pares) => {
+      const pics = new Map(pares);
+      const cvs = [...b.querySelectorAll('canvas[data-trc]')].map((cv) => { cv.width = 90; cv.height = 160; const def = trById(cv.dataset.trc); const [A, B] = pics.get(def.cat); return { cv, x: cv.getContext('2d'), def, A, B }; });
       cancelAnimationFrame(trAnim); const t0 = performance.now(); let last = 0;
       const tick = (now) => {
         if (sheetKind !== 'cut' || !b.isConnected) return;
         trAnim = requestAnimationFrame(tick); if (now - last < 33) return; last = now;
         for (const o of cvs) {
           const T = 0.4 + o.def.dur * 1.6 + 0.5, u = ((now - t0) / 1000) % T, p = clamp((u - 0.4) / (o.def.dur * 1.6), 0, 1);
-          o.x.fillStyle = '#000'; o.x.fillRect(0, 0, 90, 160); drawTransition(o.x, 90, 160, o.def, A, B, p, 3);
+          o.x.fillStyle = '#000'; o.x.fillRect(0, 0, 90, 160); drawTransition(o.x, 90, 160, o.def, o.A, o.B, p, 3);
         }
       };
       trAnim = requestAnimationFrame(tick);
@@ -1775,10 +1794,10 @@ function transSound(type) {
 function soundKey(c) {
   if (c.trSnd != null) return c.trSnd === 'none' ? null : c.trSnd;
   if (c.transition === 'flash') return S.fx.click ? (S.fx.flashSnd || '@click') : null;
-  if (c.transition === 'burn') return S.fx.burnSound ? (S.fx.burnSnd || '@burn') : null;
+  if (c.transition === 'burn') return S.fx.burnSound ? (S.fx.burnSnd || 'flare-2.mp3') : null;
   return trById(c.transition)?.snd || null;
 }
-const trDbOf = (c) => c.trDb ?? (c.transition === 'flash' ? S.fx.clickDb : c.transition === 'burn' ? S.fx.burnDb : -8);
+const trDbOf = (c) => c.trDb ?? (c.transition === 'flash' ? S.fx.clickDb : -8);
 function soundFor(c) {
   const k = soundKey(c); if (!k) return null;
   if (k === '@click') return clickBuf ? { buf: clickBuf, in: 0, out: clickBuf.duration, peak: 0 } : null;
@@ -1913,7 +1932,7 @@ function drawLayers(ctx, W, H, t, pre) {
     const seld = pre && S.sel?.type === 'layer' && S.sel.id === L.id && !E.playing && !FSP.on;
     ctx.save(); ctx.translate(lx, ly); if (rot) ctx.rotate(rot * Math.PI / 180);
     if (op > 0) { ctx.globalAlpha = op; ctx.drawImage(src, -w / 2, -h / 2, w, h); }
-    if (seld) { ctx.globalAlpha = 1; ctx.strokeStyle = '#b48cff'; ctx.lineWidth = 2; ctx.setLineDash([6, 4]); ctx.strokeRect(-w / 2, -h / 2, w, h); }
+    if (seld) { ctx.globalAlpha = 1; ctx.strokeStyle = '#FF8A50'; ctx.lineWidth = 2; ctx.setLineDash([6, 4]); ctx.strokeRect(-w / 2, -h / 2, w, h); }
     ctx.restore();
     if (pre) layerRects.push({ id: L.id, x, y, w, h });
   }
@@ -1941,7 +1960,7 @@ function drawTextLayer(ctx, W, H, L, t, pre) {
     const box = ph ? drawLayoutFx(ctx, tpl, L.layout, L.text, B, W * 0.86, ph, B / 48)
       : drawLayout(ctx, tpl, L.layout, L.text, anim?.in ? 99 : lt, B, W * 0.86);
     const bw = box.w, bh = box.h, seld = pre && S.sel?.type === 'layer' && S.sel.id === L.id && !E.playing && !FSP.on;
-    if (seld) { ctx.globalAlpha = 1; ctx.shadowColor = 'transparent'; ctx.strokeStyle = '#b48cff'; ctx.lineWidth = 2 / sc; ctx.setLineDash([6 / sc, 4 / sc]); ctx.strokeRect(-bw / 2 - 4, -bh / 2 - 4, bw + 8, bh + 8); }
+    if (seld) { ctx.globalAlpha = 1; ctx.shadowColor = 'transparent'; ctx.strokeStyle = '#FF8A50'; ctx.lineWidth = 2 / sc; ctx.setLineDash([6 / sc, 4 / sc]); ctx.strokeRect(-bw / 2 - 4, -bh / 2 - 4, bw + 8, bh + 8); }
     ctx.restore();
     if (pre) layerRects.push({ id: L.id, x: lx - (bw / 2 + 4) * sc, y: ly - (bh / 2 + 4) * sc, w: (bw + 8) * sc, h: (bh + 8) * sc });
     return;
@@ -1969,7 +1988,7 @@ function drawTextLayer(ctx, W, H, L, t, pre) {
     } else RT.drawRich(ctx, m, placed, fontCss);
   }
   const seld = pre && S.sel?.type === 'layer' && S.sel.id === L.id && !E.playing && !FSP.on;
-  if (seld) { ctx.globalAlpha = 1; ctx.shadowColor = 'transparent'; ctx.strokeStyle = '#b48cff'; ctx.lineWidth = 2 / sc; ctx.setLineDash([6 / sc, 4 / sc]); ctx.strokeRect(-bw / 2 - 4, -bh / 2 - 4, bw + 8, bh + 8); }
+  if (seld) { ctx.globalAlpha = 1; ctx.shadowColor = 'transparent'; ctx.strokeStyle = '#FF8A50'; ctx.lineWidth = 2 / sc; ctx.setLineDash([6 / sc, 4 / sc]); ctx.strokeRect(-bw / 2 - 4, -bh / 2 - 4, bw + 8, bh + 8); }
   ctx.restore();
   if (pre) layerRects.push({ id: L.id, x: lx - (bw / 2 + 4) * sc, y: ly - (bh / 2 + 4) * sc, w: (bw + 8) * sc, h: (bh + 8) * sc });
 }

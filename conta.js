@@ -98,18 +98,18 @@ function css() {
 #conta p.sub{color:var(--ink-3,#aaa);text-align:center;margin:0 0 18px;font-size:14px;line-height:1.45}
 #conta label{display:block;font-size:13px;color:var(--ink-2,#ddd);margin:12px 0 6px}
 #conta input{width:100%;box-sizing:border-box;height:50px;border-radius:14px;border:1px solid var(--line-2,#444);background:var(--glass-2,#ffffff17);color:inherit;font-size:16px;padding:0 14px}
-#conta input:focus{outline:none;border-color:var(--accent,#9b5cff)}
+#conta input:focus{outline:none;border-color:var(--accent,#FF6B2C)}
 #conta input.cod{letter-spacing:.4em;text-align:center;font-size:22px;font-weight:700}
-#conta .b{width:100%;height:52px;border-radius:999px;border:0;background:var(--accent,#9b5cff);color:#fff;font-weight:700;font-size:16px;margin-top:16px}
+#conta .b{width:100%;height:52px;border-radius:999px;border:0;background:var(--accent,#FF6B2C);color:#fff;font-weight:700;font-size:16px;margin-top:16px}
 #conta .b:disabled{opacity:.5}
-#conta .b2{background:none;border:0;color:var(--accent-2,#c9a6ff);font-size:14px;margin-top:14px;width:100%;padding:8px}
+#conta .b2{background:none;border:0;color:var(--accent-2,#FFB089);font-size:14px;margin-top:14px;width:100%;padding:8px}
 #conta .abas{display:flex;background:var(--glass,#ffffff0e);border-radius:999px;padding:4px;margin-bottom:6px}
 #conta .abas button{flex:1;height:38px;border:0;border-radius:999px;background:none;color:var(--ink-2,#ddd);font-weight:600;font-size:13.5px}
 #conta .abas button.on{background:var(--glass-3,#ffffff24);color:#fff}
 #conta .msg{min-height:20px;margin-top:12px;font-size:13.5px;text-align:center;color:var(--ink-2,#ddd)}
 #conta .msg.erro{color:var(--danger,#ff5a6e)}
 #conta .rod{margin-top:26px;text-align:center;font-size:12.5px;color:var(--ink-3,#999)}
-#conta .rod a{color:var(--accent-2,#c9a6ff)}`;
+#conta .rod a{color:var(--accent-2,#FFB089)}`;
   document.head.appendChild(s);
 }
 const LOGO = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4 8.12 15.88M14.47 14.48 20 20M8.12 8.12 12 12"/></svg>';

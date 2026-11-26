@@ -22,11 +22,31 @@ function scaled(ctx, img, W, H, k, a = 1, rot = 0) {
   ctx.save(); ctx.globalAlpha = a; ctx.translate(W / 2, H / 2); if (rot) ctx.rotate(rot); ctx.scale(k, k);
   ctx.drawImage(img, -W / 2, -H / 2, W, H); ctx.restore();
 }
-// desfoque leve e barato: reduz e amplia (funciona em qualquer navegador, inclusive Safari)
+// Desfoque real (gaussiano). Com o filtro do canvas (Chrome, Edge, Safari novo) é um blur de verdade; sem ele,
+// reduz e amplia em etapas de metade com suavização alta e mistura duas escalas, o que fica liso, sem pixelar.
+const FILTER_OK = (() => { try { const c = document.createElement('canvas').getContext('2d'); c.filter = 'blur(2px)'; return c.filter === 'blur(2px)'; } catch { return false; } })();
 function blurred(img, W, H, amt, key) {
-  const f = Math.max(1, Math.round(1 + amt * 22)), w = Math.max(2, Math.round(W / f)), h = Math.max(2, Math.round(H / f));
-  const s = tmp(key + 's', w, h), sx = s.getContext('2d'); sx.imageSmoothingEnabled = true; sx.drawImage(img, 0, 0, w, h);
-  const o = tmp(key + 'o', W, H), ox = o.getContext('2d'); ox.imageSmoothingEnabled = true; ox.clearRect(0, 0, W, H); ox.drawImage(s, 0, 0, W, H);
+  amt = cl(amt); const o = tmp(key + 'o', W, H), ox = o.getContext('2d');
+  if (amt < 0.01) { ox.clearRect(0, 0, W, H); ox.drawImage(img, 0, 0, W, H); return o; }
+  const r = amt * Math.max(W, H) * 0.035;
+  if (FILTER_OK) {
+    // borda: desenha um pouco maior para o desfoque não escurecer os cantos
+    const m = r * 2;
+    ox.clearRect(0, 0, W, H); ox.filter = `blur(${r.toFixed(2)}px)`; ox.drawImage(img, -m, -m, W + m * 2, H + m * 2); ox.filter = 'none';
+    return o;
+  }
+  const steps = Math.max(1, Math.min(6, Math.round(Math.log2(1 + r))));
+  let src = img, w = W, h = H;
+  for (let i = 0; i < steps; i++) {
+    w = Math.max(2, Math.round(w / 2)); h = Math.max(2, Math.round(h / 2));
+    const s = tmp(key + 'd' + i, w, h), sx = s.getContext('2d'); sx.imageSmoothingEnabled = true; sx.imageSmoothingQuality = 'high';
+    sx.clearRect(0, 0, w, h); sx.drawImage(src, 0, 0, w, h); src = s;
+  }
+  for (let i = steps - 2; i >= 0; i--) {
+    const c = pool.get(key + 'd' + i), cx = c.getContext('2d'); cx.imageSmoothingEnabled = true; cx.imageSmoothingQuality = 'high';
+    cx.clearRect(0, 0, c.width, c.height); cx.drawImage(src, 0, 0, c.width, c.height); src = c;
+  }
+  ox.clearRect(0, 0, W, H); ox.imageSmoothingEnabled = true; ox.imageSmoothingQuality = 'high'; ox.drawImage(src, 0, 0, W, H);
   return o;
 }
 function pixelated(img, W, H, amt, key) {
@@ -85,7 +105,7 @@ export const TRANSITIONS = [
     if (p < 0.5) full(ctx, A, W, H, 1 - eio(p * 2)); else full(ctx, B, W, H, eio((p - 0.5) * 2));
   } },
   { id: 'flash', name: 'Flash', cat: 'Básicas', dur: 0.3, snd: '@click', over: true },
-  { id: 'burn', name: 'Film burn', cat: 'Básicas', dur: 1.0, snd: '@burn', over: true },
+  { id: 'burn', name: 'Film burn', cat: 'Básicas', dur: 0.5, snd: 'flare-2.mp3', over: true },
   // ---------- Movimento ----------
   { id: 'slideL', name: 'Deslizar ←', cat: 'Movimento', dur: 0.45, snd: WH, draw: slide(1, 0, false) },
   { id: 'slideR', name: 'Deslizar →', cat: 'Movimento', dur: 0.45, snd: WH, draw: slide(-1, 0, false) },
@@ -203,19 +223,35 @@ export function drawTransition(ctx, W, H, tr, A, B, p, seed = 1) {
   ctx.save(); tr.draw(ctx, W, H, A, B, cl(p)); ctx.restore();
 }
 
-// Imagens de exemplo para a prévia, quando ainda não há clipes: geradas aqui mesmo (nada vem da internet)
-export function sampleFrames(w, h) {
-  const mk = (fn) => { const c = document.createElement('canvas'); c.width = w; c.height = h; fn(c.getContext('2d')); return c; };
-  const A = mk((x) => {
-    const g = x.createLinearGradient(0, 0, w, h); g.addColorStop(0, '#ff8a3d'); g.addColorStop(1, '#ff3d7f'); x.fillStyle = g; x.fillRect(0, 0, w, h);
-    x.fillStyle = 'rgba(255,255,255,.9)'; x.beginPath(); x.arc(w * 0.5, h * 0.4, w * 0.22, 0, Math.PI * 2); x.fill();
-    x.fillStyle = 'rgba(80,0,40,.35)'; x.fillRect(0, h * 0.68, w, h * 0.32);
-  });
-  const B = mk((x) => {
-    const g = x.createLinearGradient(0, h, w, 0); g.addColorStop(0, '#2b6cff'); g.addColorStop(1, '#3de0c8'); x.fillStyle = g; x.fillRect(0, 0, w, h);
-    x.fillStyle = 'rgba(255,255,255,.85)';
-    x.beginPath(); x.moveTo(w * 0.5, h * 0.2); x.lineTo(w * 0.8, h * 0.62); x.lineTo(w * 0.2, h * 0.62); x.closePath(); x.fill();
-    x.fillStyle = 'rgba(0,20,60,.3)'; for (let i = 0; i < 4; i++) x.fillRect(0, h * (0.72 + i * 0.07), w, h * 0.03);
-  });
-  return [A, B];
+// Imagens de exemplo para a prévia (uma dupla de cenas por tipo de transição), desenhadas aqui mesmo: nada vem da internet
+export function sampleFrames(w, h, cat = 'Básicas') {
+  const mk = (fn) => { const c = document.createElement('canvas'); c.width = w; c.height = h; const x = c.getContext('2d'); fn(x); return c; };
+  const lg = (x, y0, y1, stops) => { const g = x.createLinearGradient(0, y0 * h, 0, y1 * h); stops.forEach(([o, c]) => g.addColorStop(o, c)); return g; };
+  const sun = (x, cx, cy, r, c1, c2) => { const g = x.createRadialGradient(cx * w, cy * h, 0, cx * w, cy * h, r * w); g.addColorStop(0, c1); g.addColorStop(1, c2); x.fillStyle = g; x.beginPath(); x.arc(cx * w, cy * h, r * w, 0, Math.PI * 2); x.fill(); };
+  const hills = (x, y, amp, col, ph = 0) => { x.fillStyle = col; x.beginPath(); x.moveTo(0, h); for (let i = 0; i <= 24; i++) { const u = i / 24; x.lineTo(u * w, (y + Math.sin(u * 6 + ph) * amp + Math.sin(u * 13 + ph * 2) * amp * 0.4) * h); } x.lineTo(w, h); x.closePath(); x.fill(); };
+  const R = rng(cat.length * 31 + 7);
+  const scenes = {
+    'Básicas': [
+      (x) => { x.fillStyle = lg(x, 0, 0.62, [[0, '#2b1b4a'], [0.55, '#e0613a'], [1, '#ffc46b']]); x.fillRect(0, 0, w, h); sun(x, 0.5, 0.6, 0.2, '#fff3cf', '#ffb35c'); x.fillStyle = lg(x, 0.62, 1, [[0, '#7a3a52'], [1, '#1c1430']]); x.fillRect(0, 0.62 * h, w, h); for (let i = 0; i < 7; i++) { x.fillStyle = `rgba(255,210,150,${0.5 - i * 0.06})`; x.fillRect(w * (0.36 + R() * 0.06), h * (0.65 + i * 0.045), w * (0.22 - i * 0.02), 1.5); } },
+      (x) => { x.fillStyle = lg(x, 0, 0.55, [[0, '#7fd3ff'], [1, '#d9f3ff']]); x.fillRect(0, 0, w, h); x.fillStyle = lg(x, 0.55, 0.8, [[0, '#0b78b8'], [1, '#2bb3c9']]); x.fillRect(0, 0.55 * h, w, 0.25 * h); x.fillStyle = lg(x, 0.8, 1, [[0, '#f1dcab'], [1, '#e2c387']]); x.fillRect(0, 0.8 * h, w, h); x.fillStyle = 'rgba(255,255,255,.9)'; for (let i = 0; i < 3; i++) { const cx = R() * w, cy = (0.12 + R() * 0.25) * h; x.beginPath(); x.ellipse(cx, cy, w * 0.14, h * 0.025, 0, 0, Math.PI * 2); x.fill(); } },
+    ],
+    'Movimento': [
+      (x) => { x.fillStyle = lg(x, 0, 1, [[0, '#0a0f2c'], [1, '#26164a']]); x.fillRect(0, 0, w, h); for (let i = 0; i < 9; i++) { const bw = w * (0.08 + R() * 0.12), bh = h * (0.25 + R() * 0.45), bx = (i / 9) * w; x.fillStyle = '#121633'; x.fillRect(bx, h - bh, bw, bh); for (let k = 0; k < 18; k++) if (R() < 0.45) { x.fillStyle = R() < 0.5 ? '#ffd27a' : '#8fd6ff'; x.fillRect(bx + 2 + R() * (bw - 5), h - bh + 4 + R() * (bh - 8), 2, 2); } } },
+      (x) => { x.fillStyle = lg(x, 0, 0.5, [[0, '#ffb07c'], [1, '#ffe2b8']]); x.fillRect(0, 0, w, h); hills(x, 0.5, 0.03, '#9aa3c4'); x.fillStyle = '#3b3d48'; x.beginPath(); x.moveTo(w * 0.42, h * 0.52); x.lineTo(w * 0.58, h * 0.52); x.lineTo(w * 1.1, h); x.lineTo(-w * 0.1, h); x.closePath(); x.fill(); x.fillStyle = '#ffd34d'; for (let i = 0; i < 6; i++) { const t = i / 6, y = h * (0.55 + t * t * 0.45), ww = 1 + t * 4; x.fillRect(w / 2 - ww / 2, y, ww, h * 0.02 * (1 + t * 2)); } },
+    ],
+    'Zoom': [
+      (x) => { x.fillStyle = lg(x, 0, 0.7, [[0, '#9ec9ff'], [1, '#e8f1ff']]); x.fillRect(0, 0, w, h); x.fillStyle = '#5b6b8c'; x.beginPath(); x.moveTo(-w * 0.1, h * 0.7); x.lineTo(w * 0.38, h * 0.28); x.lineTo(w * 0.62, h * 0.5); x.lineTo(w * 0.8, h * 0.36); x.lineTo(w * 1.1, h * 0.7); x.closePath(); x.fill(); x.fillStyle = '#fff'; x.beginPath(); x.moveTo(w * 0.38, h * 0.28); x.lineTo(w * 0.46, h * 0.36); x.lineTo(w * 0.31, h * 0.35); x.closePath(); x.fill(); hills(x, 0.68, 0.025, '#2f6b4f', 1); hills(x, 0.8, 0.03, '#1f4d39', 2.5); },
+      (x) => { x.fillStyle = lg(x, 0, 1, [[0, '#cfe8c8'], [1, '#2e5b3a']]); x.fillRect(0, 0, w, h); for (let i = 0; i < 14; i++) { const tx = R() * w, ty = h * (0.35 + R() * 0.55), s2 = 0.6 + R(); x.fillStyle = `rgba(${20 + R() * 30},${70 + R() * 50},${40 + R() * 20},.95)`; x.beginPath(); x.moveTo(tx, ty - 34 * s2); x.lineTo(tx + 12 * s2, ty); x.lineTo(tx - 12 * s2, ty); x.closePath(); x.fill(); x.fillStyle = '#4a3322'; x.fillRect(tx - 1.5, ty, 3, 6 * s2); } },
+    ],
+    'Formas': [
+      (x) => { x.fillStyle = lg(x, 0, 0.6, [[0, '#ff9a5a'], [1, '#ffd9a0']]); x.fillRect(0, 0, w, h); sun(x, 0.7, 0.25, 0.1, '#fff7e0', '#ffd27a'); hills(x, 0.62, 0.05, '#e3a35e', 0.5); hills(x, 0.75, 0.04, '#c98243', 2); hills(x, 0.88, 0.03, '#a8642f', 4); },
+      (x) => { x.fillStyle = lg(x, 0, 0.45, [[0, '#8ad0ff'], [1, '#d6f0ff']]); x.fillRect(0, 0, w, h); x.fillStyle = lg(x, 0.45, 1, [[0, '#6fb24a'], [1, '#2f6e2a']]); x.fillRect(0, 0.45 * h, w, h); for (let i = 0; i < 70; i++) { const fy = h * (0.47 + R() * 0.53), fx = R() * w, r = 1 + (fy / h - 0.45) * 5; x.fillStyle = ['#ff5d8f', '#ffd23f', '#ffffff', '#c56bff'][Math.floor(R() * 4)]; x.beginPath(); x.arc(fx, fy, r, 0, Math.PI * 2); x.fill(); } },
+    ],
+    'Efeitos': [
+      (x) => { x.fillStyle = '#0b0614'; x.fillRect(0, 0, w, h); for (let i = 0; i < 6; i++) { const g = x.createRadialGradient(R() * w, R() * h, 0, R() * w, R() * h, w * (0.4 + R() * 0.5)); const c = ['255,60,170', '60,140,255', '140,60,255', '0,230,200'][i % 4]; g.addColorStop(0, `rgba(${c},.85)`); g.addColorStop(1, `rgba(${c},0)`); x.fillStyle = g; x.fillRect(0, 0, w, h); } x.strokeStyle = 'rgba(255,255,255,.7)'; x.lineWidth = 2; x.beginPath(); x.arc(w / 2, h / 2, w * 0.26, 0, Math.PI * 2); x.stroke(); },
+      (x) => { x.fillStyle = lg(x, 0, 1, [[0, '#120a24'], [1, '#2a0d3a']]); x.fillRect(0, 0, w, h); for (let i = 0; i < 5; i++) { const cx = (0.1 + i * 0.2) * w; const g = x.createLinearGradient(cx, 0, w / 2, h * 0.75); const c = ['255,80,200', '80,200,255', '255,220,90', '160,90,255', '90,255,180'][i]; g.addColorStop(0, `rgba(${c},.0)`); g.addColorStop(0.3, `rgba(${c},.55)`); g.addColorStop(1, `rgba(${c},0)`); x.fillStyle = g; x.beginPath(); x.moveTo(cx - 3, 0); x.lineTo(cx + 3, 0); x.lineTo(w / 2 + 30, h * 0.8); x.lineTo(w / 2 - 30, h * 0.8); x.closePath(); x.fill(); } x.fillStyle = '#06030c'; for (let i = 0; i < 12; i++) { const px = (i / 11) * w; x.beginPath(); x.arc(px, h * (0.86 + R() * 0.04), w * 0.06, 0, Math.PI * 2); x.fill(); } x.fillRect(0, h * 0.9, w, h); },
+    ],
+  };
+  const [fa, fb] = scenes[cat] || scenes['Básicas'];
+  return [mk(fa), mk(fb)];
 }
