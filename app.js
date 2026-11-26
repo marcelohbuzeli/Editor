@@ -2,7 +2,7 @@
 // Os vídeos ficam no aparelho. Vão para a nuvem só: a galeria de projetos (dados leves), a transcrição via Groq
 // (se usada) e, no "Editar com IA", a TRANSCRIÇÃO em texto (nunca o vídeo).
 
-import { TEMPLATES, LAYOUTS, tplById, layoutById, parseMarked, stripMarks, drawCapTpl, drawLayout, drawLayoutFx, countUnits, drawPreview, loadTemplateFonts } from './estilos.js?v=26';
+import { TEMPLATES, LAYOUTS, tplById, layoutById, parseMarked, stripMarks, drawCapTpl, drawLayout, drawLayoutFx, countUnits, drawPreview, loadTemplateFonts } from './estilos.js?v=31';
 import { ANIM_GROUPS, presetsOf, presetByName, animLabel, SPLIT_LABEL, layerPhase, hasAnim, splitSlices, sliceState, applyState, makePlan, emphasisTime } from './animacoes.js?v=26';
 import * as conta from './conta.js?v=25b';
 import { criarAgente } from './agente.js?v=26';
@@ -77,7 +77,7 @@ const TPL_COLORS = ['#FFFFFF', '#EEF2F8', '#F1D3B0', '#F7E8B0', '#FFD84D', '#D7F
 const fontCss = (id) => (FONTS.find((f) => f.id === id) || FONTS[0]).css;
 
 let galeria = null;   // dados do projeto aberto na galeria: { id, titulo, cliente, taskId, video, pasta, ... }
-const DEFAULT_CAP = { font: 'Poppins', weight: 700, size: 60, color: '#FFFFFF', shadow: 60, blur: 12, y: 0.75, upper: false };
+const DEFAULT_CAP = { font: 'Poppins', weight: 700, size: 60, color: '#FFFFFF', shadow: 60, blur: 12, y: 0.75, upper: false, ls: 0, lh: 1.2 };
 const DEFAULT_FX = {
   fadeIn: { on: false, dur: 0.5 }, fadeOut: { on: false, dur: 1.0 }, fadeAudio: true,
   flashDur: 0.3, click: true, clickDb: -10,
@@ -536,18 +536,20 @@ function drawCaption(ctx, W, H, text, cap, s) {
   if (tpl) {
     // modelo de legenda: palavra por palavra, com a combinação de fontes nos destaques (*palavra*)
     const toks = parseMarked(text);
-    drawCapTpl(ctx, W, tpl, toks, capTimes(cap, toks.length), stillPreview ? 1e9 : (s ?? 1e9), fs, c.upper, presetByName(c.anim));
+    drawCapTpl(ctx, W, tpl, toks, capTimes(cap, toks.length), stillPreview ? 1e9 : (s ?? 1e9), fs, c.upper, presetByName(c.anim), { ls: c.ls || 0, lh: c.lh || 1.2, k });
     ctx.restore(); return;
   }
   text = stripMarks(text);
   ctx.font = `${c.weight} ${fs}px ${fontCss(c.font)}`;
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  const ls = (c.ls || 0) * k, hasLS = 'letterSpacing' in ctx; if (hasLS) ctx.letterSpacing = ls + 'px';
   const lines = wrapLines(ctx, c.upper ? text.toUpperCase() : text, W * 0.86);
-  const lh = fs * 1.2; let y = -(lines.length - 1) * lh / 2;
+  const lh = fs * (c.lh || 1.2); let y = -(lines.length - 1) * lh / 2;
   ctx.fillStyle = c.color;
   const passes = c.shadow > 0 ? 1 + (c.shadow > 60) + (c.shadow > 85) : 1;
   ctx.shadowColor = `rgba(0,0,0,${c.shadow / 100})`; ctx.shadowBlur = c.blur * k * sc; ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0;
-  for (const ln of lines) { for (let p = 0; p < passes; p++) ctx.fillText(ln, 0, y); y += lh; }
+  const dx = hasLS ? ls / 2 : 0; // compensa o espaço que sobra depois da última letra
+  for (const ln of lines) { for (let p = 0; p < passes; p++) ctx.fillText(ln, dx, y); y += lh; }
   ctx.restore();
 }
 let scr = null;
@@ -2623,6 +2625,8 @@ function capStyleHTML() {
     <div class="sec">Cor</div>
     <div class="chips">${COLORS.map((x) => `<button class="sw ${c.color.toUpperCase() === x ? 'on' : ''}" data-color="${x}" style="background:${x}" aria-label="Cor ${x}"></button>`).join('')}<input type="color" id="cap-color" value="${c.color}" aria-label="Outra cor"></div>`}
     ${rangeRow('size', 'Tamanho', 24, 160, 1, c.size, (v) => v)}
+    ${rangeRow('cls', 'Espaço entre letras', -10, 60, 1, c.ls || 0, (v) => v, 0)}
+    ${rangeRow('clh', 'Espaço entre linhas', 0.9, 2.4, 0.05, c.lh || 1.2, (v) => (+v).toFixed(2), 1.2)}
     ${rangeRow('y', 'Posição', 8, 92, 1, Math.round(c.y * 100), pctf)}
     <div class="sec">Sombra</div>
     ${rangeRow('shadow', 'Intensidade', 0, 100, 1, c.shadow, pctf)}
@@ -2674,6 +2678,8 @@ function bindCapStyle(b) {
   $('#cap-upper', b).addEventListener('change', (e) => { commit(); c.upper = e.target.checked; draw(); });
   bindRanges(b, {
     size: { set: (v) => (c.size = v), fmt: (v) => v },
+    cls: { set: (v) => (c.ls = v), fmt: (v) => v },
+    clh: { set: (v) => (c.lh = v), fmt: (v) => (+v).toFixed(2) },
     y: { set: (v) => (c.y = v / 100), fmt: pctf },
     shadow: { set: (v) => (c.shadow = v), fmt: pctf },
     blur: { set: (v) => (c.blur = v), fmt: (v) => v },
@@ -3547,7 +3553,7 @@ ensureFonts().then(draw);
 loadCustomFonts().then(() => { try { draw(); } catch {} });
 try { navigator.storage?.persist?.(); } catch {}
 // versão do app: aparece pequena ao lado do nome, para conferir se atualizou
-const APP_VERSION = 30;
+const APP_VERSION = 31;
 loadTemplateFonts().then(() => { try { draw(); } catch {} });
 { const b = document.querySelector('.brand-ver'); if (b) b.textContent = 'v' + APP_VERSION; }
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {

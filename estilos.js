@@ -135,9 +135,40 @@ function capWordFx(ctx, anim, n, i, dt, box, k, fn) {
 }
 
 // ---------- Modelo de legenda ----------
+// Espaçamento escolhido na legenda: LS = px entre letras (já na escala do vídeo), LF = fator do espaço entre linhas (1 = padrão).
+// Nada se sobrepõe: cada parte (linha pequena, destaque grande, manuscrito, linha de baixo) ganha a própria faixa,
+// medida com folga para a inclinação e para as hastes da fonte manuscrita.
+let LS = 0, LF = 1;
+const setLS = (ctx) => { if ('letterSpacing' in ctx) ctx.letterSpacing = LS ? LS + 'px' : '0px'; };
+// largura sem o espaço que o navegador acrescenta depois da última letra
+const tw = (ctx, t) => Math.max(0, ctx.measureText(t).width - ('letterSpacing' in ctx ? LS : 0));
+// fillText centralizado: compensa o espaço extra depois da última letra
+const ftc = (ctx, t, x, y) => ctx.fillText(t, x + ('letterSpacing' in ctx ? LS / 2 : 0), y);
+const SC_ROT = -4 * Math.PI / 180, BOX_ROT = -2.2 * Math.PI / 180;
+// maior tamanho (até px) em que o texto cabe em room. O espaço entre letras é fixo em px, então só as letras encolhem.
+function fitPx(ctx, mk, px, text, room) {
+  ctx.font = mk(px); const w = tw(ctx, text); if (w <= room) return px;
+  const lsTot = ('letterSpacing' in ctx ? LS : 0) * Math.max(0, [...text].length - 1), g = Math.max(1, w - lsTot);
+  return px * Math.max(0.25, (room - lsTot) / g);
+}
+
 // ctx já está transladado para o centro do bloco. times[i] = instante (tempo de origem) em que a palavra i é falada.
-export function drawCapTpl(ctx, W, tpl, toks, times, s, fs, upper, anim) {
+// opt = { ls: px entre letras (escala 1080), lh: espaço entre linhas (1.2 = padrão), k: escala do vídeo }
+export function drawCapTpl(ctx, W, tpl, toks, times, s, fs, upper, anim, opt = {}) {
   if (!toks.length) return;
+  ctx.save();
+  LS = (opt.ls || 0) * (opt.k || 1); LF = (opt.lh || 1.2) / 1.2; setLS(ctx);
+  try { capTpl(ctx, W, tpl, toks, times, s, fs, upper, anim); } finally { LS = 0; LF = 1; ctx.restore(); }
+}
+// quebra uma fila de palavras em linhas que cabem em maxW
+function wrapToks(ctx, toks, upper, maxW) {
+  const sp = tw(ctx, ' ') + LS * 2, ws = toks.map((t) => tw(ctx, up(t.t, upper)));
+  const lines = []; let cur = [], cw = 0;
+  toks.forEach((t, i) => { const add = ws[i] + (cur.length ? sp : 0); if (cur.length && cw + add > maxW) { lines.push({ ids: cur, w: cw }); cur = []; cw = 0; } cw += ws[i] + (cur.length ? sp : 0); cur.push(i); });
+  if (cur.length) lines.push({ ids: cur, w: cw });
+  return { lines, ws, sp };
+}
+function capTpl(ctx, W, tpl, toks, times, s, fs, upper, anim) {
   const first = toks.findIndex((t) => t.hl);
   if (first < 0) return drawCapRun(ctx, W, tpl, toks, times, s, fs, upper, anim);
   let last = first; toks.forEach((t, i) => { if (t.hl) last = i; });
@@ -145,7 +176,7 @@ export function drawCapTpl(ctx, W, tpl, toks, times, s, fs, upper, anim) {
   let post = toks.slice(last + 1);
   const tPre = times.slice(0, first);
   let tPost = times.slice(last + 1);
-  const small = fs * 0.62, maxW = W * 0.88;
+  const small = fs * 0.62, maxW = W * 0.86;
   // combinação: *grande* + _manuscrito_ (palavras diferentes). Sem _manuscrito_, o destaque não se repete.
   const combo = tpl.combo === 'script';
   const scToks = combo ? mid.filter((t) => t.sc) : [];
@@ -158,91 +189,127 @@ export function drawCapTpl(ctx, W, tpl, toks, times, s, fs, upper, anim) {
   const scTxt = bigToks.length ? scToks.map((t) => t.t).join(' ').replace(/[.,;:…]+$/, '') : '';
   const tMid = times[first + (bigToks.length ? mid.indexOf(bigToks[0]) : 0)];
   const tSc = scToks.length ? times[first + mid.indexOf(scToks[0])] : tMid;
-  // tamanho do destaque: grande, mas cabendo na largura
+  // tamanho do destaque: grande, mas cabendo na largura (a caixa do Impacto e a inclinação também contam)
   const d = tpl.disp; let big = fs * 1.95 * d.scale;
-  ctx.font = fnt(d.font, d.weight, big, d.italic);
-  const bw0 = ctx.measureText(up(bigTxt, d.upper)).width; if (bw0 > maxW) big *= maxW / bw0;
-  const gapS = small * 0.25, rows = [];
-  if (pre.length) rows.push({ k: 'small', h: small * 1.15 });
-  rows.push({ k: 'big', h: big * (tpl.combo === 'script' ? 1.25 : 1.05) });
-  if (post.length) rows.push({ k: 'small2', h: small * 1.15 });
-  const totalH = rows.reduce((a, r) => a + r.h, 0) + gapS * (rows.length - 1);
+  const label = up(bigTxt, d.upper), mkD = (px) => fnt(d.font, d.weight, px, d.italic);
+  // Destaque numa linha só enquanto couber grande; se ficaria pequeno demais, quebra em 2 ou 3 linhas.
+  // Na caixa do Impacto sobra a margem da caixa (0,32 × o tamanho) dentro da largura.
+  const words = label.split(' '), big0 = big, minBig = Math.min(big0, fs * 1.15);
+  let bl = [label];
+  for (let n = 1; n <= Math.min(3, words.length); n++) {
+    bl = splitBalanced(ctx, mkD(big0), words, n);
+    big = big0;
+    for (let it = 0; it < 3; it++) for (const ln of bl) big = Math.min(big, fitPx(ctx, mkD, big, ln, tpl.combo === 'box' ? maxW - big * 0.32 : maxW));
+    if (big >= minBig) break;
+  }
+  ctx.font = mkD(big);
+  const bws = bl.map((ln) => tw(ctx, ln));
+  // altura de cada linha do destaque: letra (ou caixa) + o que a inclinação acrescenta nas pontas
+  const lineH = tpl.combo === 'box' ? big * 1.02 + Math.abs(Math.sin(BOX_ROT)) * (Math.max(...bws) + big * 0.32) + big * 0.14 : big * 1.05;
+  const bigH = lineH * bl.length;
+  // manuscrito: logo abaixo do destaque, numa faixa própria
+  let spx = 0, sw = 0, scH = 0;
+  if (scTxt) {
+    const mkS = (px) => fnt(tpl.script, 400, px);
+    spx = fitPx(ctx, mkS, big * 0.95, scTxt, maxW); ctx.font = mkS(spx); sw = tw(ctx, scTxt);
+    scH = spx * 1.25 + Math.abs(Math.sin(SC_ROT)) * sw;
+  }
+  ctx.font = fnt(tpl.base.font, tpl.base.weight, small);
+  const wPre = pre.length ? wrapToks(ctx, pre, upper, maxW) : null, wPost = post.length ? wrapToks(ctx, post, upper, maxW) : null;
+  const lineS = small * 1.2 * LF, gap = small * 0.3 * LF, rows = [];
+  if (wPre) rows.push({ k: 'pre', h: lineS * wPre.lines.length });
+  const bigF = Math.max(1, LF * 0.9 + 0.1);
+  rows.push({ k: 'big', h: bigH * bigF });
+  if (scTxt) rows.push({ k: 'sc', h: scH });
+  if (wPost) rows.push({ k: 'post', h: lineS * wPost.lines.length });
+  const totalH = rows.reduce((a, r) => a + r.h, 0) + gap * (rows.length - 1);
   let y = -totalH / 2;
   for (const r of rows) {
     const cy = y + r.h / 2;
-    if (r.k === 'small') smallRow(ctx, tpl, pre, tPre, s, small, cy, upper, anim);
-    else if (r.k === 'small2') smallRow(ctx, tpl, post, tPost, s, small, cy, upper, anim);
-    else bigCombo(ctx, tpl, bigTxt, tMid, s, big, cy, scTxt, tSc, maxW);
-    y += r.h + gapS;
+    if (r.k === 'pre') smallRows(ctx, tpl, pre, tPre, s, small, y, lineS, wPre, upper, anim);
+    else if (r.k === 'post') smallRows(ctx, tpl, post, tPost, s, small, y, lineS, wPost, upper, anim);
+    else if (r.k === 'big') bl.forEach((ln, li) => bigCombo(ctx, tpl, ln, bws[li], tMid, s, big, cy + (li - (bl.length - 1) / 2) * lineH * bigF));
+    else scriptPart(ctx, tpl, scTxt, sw, spx, Math.max(tMid, tSc), s, cy);
+    y += r.h + gap;
   }
 }
-function smallRow(ctx, tpl, toks, times, s, px, cy, upper, anim) {
+// divide as palavras em n linhas de largura parecida
+function splitBalanced(ctx, font, words, n) {
+  if (n <= 1) return [words.join(' ')];
+  ctx.font = font;
+  const target = tw(ctx, words.join(' ')) / n, out = []; let cur = [];
+  for (let i = 0; i < words.length; i++) {
+    const rest = words.length - i, left = n - out.length;
+    if (cur.length && (rest < left || (out.length < n - 1 && tw(ctx, [...cur, words[i]].join(' ')) > target * 1.08))) { out.push(cur.join(' ')); cur = []; }
+    cur.push(words[i]);
+  }
+  if (cur.length) out.push(cur.join(' '));
+  return out;
+}
+function smallRows(ctx, tpl, toks, times, s, px, top, lineS, wr, upper, anim) {
   const b = tpl.base;
-  ctx.font = fnt(b.font, b.weight, px); ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
-  const sp = ctx.measureText(' ').width, ws = toks.map((t) => ctx.measureText(up(t.t, upper)).width);
-  let x = -(ws.reduce((a, w) => a + w, 0) + sp * (toks.length - 1)) / 2;
-  toks.forEach((t, i) => {
-    const p = (s - times[i]) / 0.2;
-    if (anim) capWordFx(ctx, anim, toks.length, i, s - times[i], { x, y: cy - px / 2, w: ws[i], h: px }, px / 48, () => { shadowOn(ctx, px); ctx.fillStyle = b.color; ctx.fillText(up(t.t, upper), x + ws[i] / 2, cy); });
-    else if (p > 0) {
-      ctx.save(); ctx.globalAlpha *= eOut(p * 1.4); ctx.translate(x + ws[i] / 2, cy + (1 - eOut(p)) * px * 0.35);
-      shadowOn(ctx, px); ctx.fillStyle = b.color; ctx.textAlign = 'center'; ctx.fillText(up(t.t, upper), 0, 0); ctx.restore();
+  ctx.font = fnt(b.font, b.weight, px); ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
+  wr.lines.forEach((ln, li) => {
+    const cy = top + lineS * (li + 0.5); let x = -ln.w / 2;
+    for (const i of ln.ids) {
+      const t = toks[i], w = wr.ws[i], p = (s - times[i]) / 0.2;
+      if (anim) capWordFx(ctx, anim, toks.length, i, s - times[i], { x, y: cy - px / 2, w, h: px }, px / 48, () => { shadowOn(ctx, px); ctx.fillStyle = b.color; ftc(ctx, up(t.t, upper), x + w / 2, cy); });
+      else if (p > 0) {
+        ctx.save(); ctx.globalAlpha *= eOut(p * 1.4); ctx.translate(x + w / 2, cy + (1 - eOut(p)) * px * 0.35);
+        shadowOn(ctx, px); ctx.fillStyle = b.color; ftc(ctx, up(t.t, upper), 0, 0); ctx.restore();
+      }
+      x += w + wr.sp;
     }
-    x += ws[i] + sp;
   });
 }
-function bigCombo(ctx, tpl, txt, t0, s, px, cy, scTxt = '', tSc = t0, maxW = 1e5) {
+function bigCombo(ctx, tpl, label, w, t0, s, px, cy) {
   const p = (s - t0) / 0.28; if (p <= 0) return;
-  const d = tpl.disp, label = up(txt, d.upper);
+  const d = tpl.disp;
   ctx.save(); ctx.translate(0, cy); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   ctx.font = fnt(d.font, d.weight, px, d.italic);
-  const w = ctx.measureText(label).width;
   if (tpl.combo === 'box') {
-    ctx.rotate(-2.2 * Math.PI / 180);
+    ctx.rotate(BOX_ROT);
     const padX = px * 0.16, bh = px * 1.02, pw = eOut(p * 1.3);
     shadowOff(ctx); ctx.fillStyle = tpl.accent; roundRect(ctx, -w / 2 - padX, -bh / 2, (w + padX * 2) * pw, bh, px * 0.08); ctx.fill();
     const q = cl((p - 0.35) / 0.65);
-    if (q > 0) { const sc = 1.18 - 0.18 * eBack(q); ctx.scale(sc, sc); ctx.globalAlpha *= eOut(q * 1.5); ctx.fillStyle = tpl.ink; ctx.fillText(label, 0, px * 0.04); }
+    if (q > 0) { const sc = 1.18 - 0.18 * eBack(q); ctx.scale(sc, sc); ctx.globalAlpha *= eOut(q * 1.5); ctx.fillStyle = tpl.ink; ftc(ctx, label, 0, px * 0.04); }
   } else if (tpl.combo === 'script') {
     const sc = 0.7 + 0.3 * eBack(p);
-    ctx.save(); ctx.scale(sc, sc); ctx.globalAlpha *= eOut(p * 1.5); shadowOn(ctx, px, 0.45); ctx.fillStyle = tpl.paper; ctx.fillText(label, 0, -px * 0.12); ctx.restore();
-    // a outra parte da combinação em script, por cima e inclinada, revelada da esquerda para a direita
-    const q = scTxt ? cl((s - Math.max(t0, tSc) - 0.05) / 0.45) : 0;
-    if (q > 0) {
-      let spx = px * 1.05; ctx.font = fnt(tpl.script, 400, spx); let sw = ctx.measureText(scTxt).width;
-      if (sw > maxW) { spx *= maxW / sw; ctx.font = fnt(tpl.script, 400, spx); sw = ctx.measureText(scTxt).width; }
-      const txt = scTxt;
-      ctx.save(); ctx.translate(px * 0.18, px * 0.38); ctx.rotate(-6 * Math.PI / 180);
-      ctx.beginPath(); ctx.rect(-sw / 2 - spx, -spx * 1.5, (sw + spx * 2) * eOut(q), spx * 3); ctx.clip();
-      shadowOn(ctx, spx, 0.55); ctx.fillStyle = tpl.accent; ctx.fillText(txt, 0, 0); ctx.restore();
-    }
+    ctx.scale(sc, sc); ctx.globalAlpha *= eOut(p * 1.5); shadowOn(ctx, px, 0.45); ctx.fillStyle = tpl.paper; ftc(ctx, label, 0, 0);
   } else {
     const sc = 0.85 + 0.15 * eOut(p);
     ctx.scale(sc, sc); ctx.globalAlpha *= eOut(p * 1.2);
     ctx.shadowColor = tpl.accent; ctx.shadowBlur = px * 0.45 * (1.4 - 0.6 * eOut(p)); ctx.fillStyle = tpl.accent;
-    ctx.fillText(label, 0, 0); shadowOff(ctx); ctx.fillText(label, 0, 0);
+    ftc(ctx, label, 0, 0); shadowOff(ctx); ftc(ctx, label, 0, 0);
   }
   ctx.restore();
+}
+// a outra parte da combinação em manuscrito, na faixa logo abaixo do destaque, levemente inclinada,
+// revelada da esquerda para a direita
+function scriptPart(ctx, tpl, txt, sw, spx, t0, s, cy) {
+  const q = cl((s - t0 - 0.05) / 0.45); if (q <= 0) return;
+  ctx.save(); ctx.translate(0, cy); ctx.rotate(SC_ROT); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.font = fnt(tpl.script, 400, spx);
+  ctx.beginPath(); ctx.rect(-sw / 2 - spx, -spx * 1.5, (sw + spx * 2) * eOut(q), spx * 3); ctx.clip();
+  shadowOn(ctx, spx, 0.55); ctx.fillStyle = tpl.accent; ftc(ctx, txt, 0, 0); ctx.restore();
 }
 // Legenda corrida: palavra por palavra, a palavra falada no momento ganha a cor de destaque do modelo
 function drawCapRun(ctx, W, tpl, toks, times, s, fs, upper, anim) {
   const b = tpl.base, maxW = W * 0.86;
   ctx.font = fnt(b.font, b.weight, fs); ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
-  const sp = ctx.measureText(' ').width, ws = toks.map((t) => ctx.measureText(up(t.t, upper)).width);
-  const lines = []; let cur = [], cw = 0;
-  toks.forEach((t, i) => { const add = ws[i] + (cur.length ? sp : 0); if (cur.length && cw + add > maxW) { lines.push({ ids: cur, w: cw }); cur = []; cw = 0; } cw += ws[i] + (cur.length ? sp : 0); cur.push(i); });
-  if (cur.length) lines.push({ ids: cur, w: cw });
+  const { lines, ws, sp } = wrapToks(ctx, toks, upper, maxW);
   let active = -1; times.forEach((t, i) => { if (t <= s) active = i; });
-  const lh = fs * 1.2; let y = -(lines.length - 1) * lh / 2;
+  const lh = fs * 1.2 * LF; let y = -(lines.length - 1) * lh / 2;
   for (const ln of lines) {
     let x = -ln.w / 2;
     for (const i of ln.ids) {
       const p = (s - times[i]) / 0.22;
-      if (anim) capWordFx(ctx, anim, toks.length, i, s - times[i], { x, y: y - fs / 2, w: ws[i], h: fs }, fs / 48, () => { shadowOn(ctx, fs, 0.6); ctx.fillStyle = i === active ? b.active : b.color; ctx.fillText(up(toks[i].t, upper), x + ws[i] / 2, y); });
+      if (anim) capWordFx(ctx, anim, toks.length, i, s - times[i], { x, y: y - fs / 2, w: ws[i], h: fs }, fs / 48, () => { shadowOn(ctx, fs, 0.6); ctx.fillStyle = i === active ? b.active : b.color; ftc(ctx, up(toks[i].t, upper), x + ws[i] / 2, y); });
       else if (p > 0) {
-        const sc = 0.62 + 0.38 * eBack(p);
+        // a palavra cresce até o tamanho final sem passar dele (passar faria encostar na vizinha)
+        const sc = 0.62 + 0.38 * eOut(p);
         ctx.save(); ctx.translate(x + ws[i] / 2, y); ctx.scale(sc, sc); ctx.globalAlpha *= eOut(p * 1.6);
-        shadowOn(ctx, fs, 0.6); ctx.fillStyle = i === active ? b.active : b.color; ctx.fillText(up(toks[i].t, upper), 0, 0); ctx.restore();
+        shadowOn(ctx, fs, 0.6); ctx.fillStyle = i === active ? b.active : b.color; ftc(ctx, up(toks[i].t, upper), 0, 0); ctx.restore();
       }
       x += ws[i] + sp;
     }
