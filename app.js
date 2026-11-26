@@ -443,10 +443,24 @@ const isReady = (st) => st && st.v._clipId === st.r.clip.id && !st.v.seeking && 
 
 // ---------- Renderização ----------
 const pv = $('#preview'), pctx = pv.getContext('2d');
+// Prévia parada: guarda o último quadro do vídeo. Se o vídeo ainda estiver buscando o quadro (comum no Safari/iPhone),
+// textos, legendas e camadas são redesenhados na hora por cima dele, em vez de esperar o vídeo carregar.
+const lastBase = { cv: null, clipId: null, t: -1 };
+function keepBase(st) {
+  const v = st.v; if (v.isStill || !v.videoWidth) return;
+  const k = Math.min(1, 1280 / Math.max(v.videoWidth, v.videoHeight)), w = Math.round(v.videoWidth * k), h = Math.round(v.videoHeight * k);
+  const c = (lastBase.cv ??= document.createElement('canvas')); if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
+  try { c.getContext('2d').drawImage(v, 0, 0, w, h); } catch { return; }
+  c.videoWidth = w; c.videoHeight = h; lastBase.clipId = st.r.clip.id; lastBase.t = st.s;
+}
 function render(ctx, W, H, t, st, pre = false) {
-  if (!isReady(st)) return false; // mantém o último quadro enquanto carrega
-  renderFrame(ctx, W, H, t, st.r, st.v, pre);
-  return true;
+  if (isReady(st)) {
+    if (pre && !E.playing && !E.exporting) keepBase(st);
+    renderFrame(ctx, W, H, t, st.r, st.v, pre);
+    return true;
+  }
+  if (pre && st && !E.playing && !E.exporting && lastBase.cv && lastBase.clipId === st.r.clip.id) { renderFrame(ctx, W, H, t, st.r, lastBase.cv, pre); return true; }
+  return false; // mantém o último quadro enquanto carrega
 }
 let stillPreview = false; // prévia parada: textos de modelo aparecem completos para editar
 function renderFrame(ctx, W, H, t, r, v, pre = false) {
