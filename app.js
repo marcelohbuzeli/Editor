@@ -32,6 +32,7 @@ const ICONS = {
   trash: '<path d="M3 6h18M19 6l-1 14H6L5 6M10 11v6M14 11v6M9 6V4h6v2"/>',
   home: '<path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/>',
   trans: '<rect x="3" y="5" width="11" height="14" rx="2"/><path d="M14 8h5a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-5"/><path d="M10 9l3 3-3 3"/>',
+  search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
   more: '<circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/>',
   left: '<path d="m15 18-6-6 6-6"/>',
   right: '<path d="m9 18 6-6-6-6"/>',
@@ -1158,14 +1159,15 @@ function openCutSheet(clipId, editar = false) {
     const showEdit = () => {
       if (c.transition === 'none') { edit.innerHTML = ''; return; }
       const def = trById(c.transition), r = layout()[i], d = trDurOf(r), cur = c.trSnd ?? '', defSnd = soundKeyDefault(c);
-      const nomeSnd = (k) => k === '@click' ? 'Clique' : k === '@burn' ? 'Queima' : (sfxIndex || []).find((x) => x.file === k)?.name || k;
+      const nomeSnd = (k) => k === '@click' ? 'Clique' : k === '@burn' ? 'Queima' : sfxNome(k);
       edit.innerHTML = `<div class="tr-box">
         <div class="tr-box-h"><b>${esc(def?.name || '')}</b><button class="chip" id="tr-fechar">Fechar ajustes</button></div>
         ${rangeRow('trd', 'Duração', 0.2, 2, 0.05, +d.toFixed(2), sec, def?.dur ?? 0.5)}
         <div class="row"><label>Som</label><select id="tr-snd">
           <option value="" ${cur === '' ? 'selected' : ''}>Padrão${defSnd ? ': ' + esc(nomeSnd(defSnd)) : ' (sem som)'}</option>
           <option value="none" ${cur === 'none' ? 'selected' : ''}>Sem som</option>
-          ${(sfxIndex || []).map((x) => `<option value="${esc(x.file)}" ${cur === x.file ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}
+          ${cur.startsWith('fs:') ? `<option value="${esc(cur)}" selected>${esc(sfxNome(cur))}</option>` : ''}
+          <optgroup label="Do editor">${(sfxIndex || []).map((x) => `<option value="${esc(x.file)}" ${cur === x.file ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</optgroup>
         </select></div>
         ${rangeRow('trdb', 'Volume do som', -30, 6, 1, trDbOf(c), (v) => `${v} dB`, -8)}
         <div class="chips"><button class="chip" id="tr-ouvir">${inlineIc('play', 12)} Ouvir o som</button><button class="chip" id="tr-ver">${inlineIc('play', 12)} Ver o corte</button><button class="chip" id="tr-todos">Usar em todos os cortes</button></div>
@@ -1174,6 +1176,18 @@ function openCutSheet(clipId, editar = false) {
         trd: { set: (v) => (c.trDur = v), fmt: sec, after: () => { renderTimeline(); verCorte(); } },
         trdb: { set: (v) => (c.trDb = v), fmt: (v) => `${v} dB` },
       });
+      // sons mais usados do Freesound para transição (carregam em segundo plano)
+      (async () => {
+        const sel = $('#tr-snd', edit);
+        for (const [rot, q] of [['Freesound: whoosh', 'whoosh'], ['Freesound: swoosh rápido', 'swoosh fast'], ['Freesound: transição', 'transition swipe'], ['Freesound: impacto', 'impact hit'], ['Freesound: clique', 'mouse click']]) {
+          try {
+            const r = await fsBuscar(q); if (!sel.isConnected) return;
+            const g = document.createElement('optgroup'); g.label = rot;
+            for (const x of r.itens.slice(0, 8)) { fsLembrar(x); const k = fsKey(x); if (k === cur) continue; const o = document.createElement('option'); o.value = k; o.textContent = x.nome; g.appendChild(o); }
+            if (g.children.length) sel.appendChild(g);
+          } catch { return; }
+        }
+      })();
       $('#tr-snd', edit).onchange = async (e) => {
         commit(); c.trSnd = e.target.value === '' ? null : e.target.value;
         const k = soundKey(c); if (k && !k.startsWith('@')) { try { await sfxBuffer(k); } catch { toast('Não consegui carregar este som'); } }
@@ -1552,50 +1566,117 @@ function kfSync() {
 
 let sfxIndex = null, sfxPrev = null;
 const sfxCache = new Map();
+// Sons: 'arquivo.mp3' = biblioteca que vem com o editor · 'fs:<prévia>' = som do Freesound (via função sons)
+async function sfxBytes(file) {
+  if (file.startsWith('fs:')) return (await sbReq('/functions/v1/sons?u=' + encodeURIComponent(file.slice(3)))).arrayBuffer();
+  return (await fetch('sfx/lib/' + encodeURIComponent(file))).arrayBuffer();
+}
 async function sfxBuffer(file) {
   if (!sfxCache.has(file)) {
-    const ab = await (await fetch('sfx/lib/' + encodeURIComponent(file))).arrayBuffer();
+    const ab = await sfxBytes(file);
     sfxCache.set(file, await new Promise((res, rej) => ac().decodeAudioData(ab, res, rej)));
   }
   return sfxCache.get(file);
 }
 function stopSfxPrev() { try { sfxPrev?.stop(); } catch {} sfxPrev = null; }
+
+// ---------- Efeitos sonoros do Freesound (curadoria) ----------
+// Só sons CC0 (domínio público: uso comercial sem dar crédito), os mais baixados primeiro.
+const FS_CATS = [
+  ['Whoosh', 'whoosh'], ['Swoosh rápido', 'swoosh fast'], ['Transição', 'transition swipe'], ['Clique', 'mouse click'],
+  ['Teclado', 'keyboard typing'], ['Celular digitando', 'phone typing'], ['Pop', 'pop'], ['Bolha', 'bubble pop'],
+  ['Ding', 'ding bell'], ['Notificação', 'notification'], ['Câmera', 'camera shutter'], ['Dinheiro', 'cash register'],
+  ['Impacto', 'impact hit'], ['Boom', 'boom bass'], ['Riser', 'riser'], ['Glitch', 'glitch'],
+  ['Brilho', 'sparkle magic'], ['Acerto', 'correct success'], ['Erro', 'error buzzer'], ['Rec scratch', 'record scratch'],
+  ['Tambor', 'drum roll'], ['Aplausos', 'applause'], ['Risada', 'laugh'], ['Suspense', 'suspense hit'],
+];
+const fsCache = new Map();
+async function fsBuscar(q, page = 1) {
+  const k = q.toLowerCase() + '|' + page; if (fsCache.has(k)) return fsCache.get(k);
+  const r = await (await sbReq(`/functions/v1/sons?q=${encodeURIComponent(q)}&page=${page}`)).json();
+  fsCache.set(k, r); return r;
+}
+const fsNomes = (() => { try { return JSON.parse(localStorage.getItem('fs-nomes') || '{}'); } catch { return {}; } })();
+const fsKey = (it) => 'fs:' + it.prev;
+function fsLembrar(it) {
+  fsNomes[fsKey(it)] = it.nome;
+  const ks = Object.keys(fsNomes); if (ks.length > 400) ks.slice(0, ks.length - 400).forEach((k) => delete fsNomes[k]);
+  try { localStorage.setItem('fs-nomes', JSON.stringify(fsNomes)); } catch {}
+}
+const sfxNome = (k) => (k.startsWith('fs:') ? fsNomes[k] || 'Som do Freesound' : (sfxIndex || []).find((x) => x.file === k)?.name || k);
+
+let sfxAba = 'fs', sfxCat = 0, sfxBusca = '';
 async function openSfx() {
   await loadSfxIndex();
-  if (!sfxIndex.length) return toast('Não consegui carregar a lista de SFX');
-  const lenTxt = (s) => { const t = prefs.sfxTrim?.[s.file]; return (t ? t[1] - t[0] : s.dur).toFixed(1) + 's' + (t ? ' ✂' : ''); };
-  openSheet('sfx', 'SFX', `<p class="note">▶ ouve · ✂ escolhe o trecho · ＋ coloca na linha do tempo, no cursor (${fmt(S.t)}).</p>` +
-    sfxIndex.map((s, i) => `<div class="sfx-item"><div class="sfx-row">
-      <button class="mini" data-play="${i}" aria-label="Ouvir">${ic('play')}</button>
-      <span class="sfx-name">${esc(s.name)}</span><span class="sfx-dur" data-len="${i}">${lenTxt(s)}</span>
-      <button class="mini" data-edit="${i}" aria-label="Editar trecho">${ic('scissors')}</button>
-      <button class="mini add" data-add="${i}" aria-label="Adicionar">${ic('plus')}</button></div>
-      <div class="sfx-edit" data-box="${i}" hidden></div></div>`).join(''),
-  (b) => {
-    b.querySelectorAll('[data-play]').forEach((el) => el.onclick = async () => {
-      const s = sfxIndex[+el.dataset.play];
-      try { const buf = await sfxBuffer(s.file); const [a, z] = sfxTrim(s.file, buf.duration); playRange(buf, a, z); }
-      catch { toast('Não consegui tocar este som'); }
-    });
-    b.querySelectorAll('[data-edit]').forEach((el) => el.onclick = async () => {
-      const i = +el.dataset.edit, s = sfxIndex[i], box = b.querySelector(`[data-box="${i}"]`);
-      if (!box.hidden) { box.hidden = true; el.classList.remove('on'); return; }
-      b.querySelectorAll('.sfx-edit').forEach((x) => (x.hidden = true)); b.querySelectorAll('[data-edit]').forEach((x) => x.classList.remove('on'));
-      box.hidden = false; el.classList.add('on');
-      const buf = await sfxBuffer(s.file), [a, z] = sfxTrim(s.file, buf.duration), sel = { in: a, out: z };
-      makeTrimmer(box, buf, sel, {
-        onChange: () => { b.querySelector(`[data-len="${i}"]`).textContent = (sel.out - sel.in).toFixed(1) + 's ✂'; },
-        onDone: () => { prefs.sfxTrim = { ...(prefs.sfxTrim || {}), [s.file]: [sel.in, sel.out] }; savePrefs(); },
+  const head = `<div class="tabs"><button class="tab ${sfxAba === 'fs' ? 'on' : ''}" data-sab="fs">Mais usados</button><button class="tab ${sfxAba === 'lib' ? 'on' : ''}" data-sab="lib">Do editor</button></div>`;
+  const fsTop = `<div class="sfx-busca"><input type="search" id="fs-q" placeholder="Buscar som (ex.: whoosh, clique, porta)" value="${esc(sfxBusca)}" enterkeyhint="search" autocomplete="off"><button class="mini add" id="fs-ir" aria-label="Buscar">${ic('search')}</button></div>
+    <div class="chips sfx-cats">${FS_CATS.map(([n], i) => `<button class="chip ${!sfxBusca && sfxCat === i ? 'on' : ''}" data-fcat="${i}">${esc(n)}</button>`).join('')}</div>
+    <div id="fs-lista"><p class="note">Carregando sons…</p></div>
+    <p class="note">Sons do Freesound com licença CC0 (domínio público): pode usar em vídeos comerciais sem dar crédito.</p>`;
+  openSheet('sfx', 'Efeitos sonoros', head + `<p class="note">▶ ouve · ✂ escolhe o trecho · ＋ coloca na linha do tempo, no cursor (${fmt(S.t)}).</p>` + (sfxAba === 'fs' ? fsTop : '<div id="fs-lista"></div>'), (b) => {
+    b.querySelectorAll('[data-sab]').forEach((el) => el.onclick = () => { sfxAba = el.dataset.sab; stopSfxPrev(); openSfx(); });
+    const lista = $('#fs-lista', b);
+    let itens = [];   // { key, name, dur, extra }
+    const lenTxt = (it) => { const t = prefs.sfxTrim?.[it.key]; return (t ? t[1] - t[0] : it.dur).toFixed(1) + 's' + (t ? ' ✂' : ''); };
+    const desenhar = (mais) => {
+      lista.innerHTML = itens.length ? itens.map((it, i) => `<div class="sfx-item"><div class="sfx-row">
+        <button class="mini" data-play="${i}" aria-label="Ouvir">${ic('play')}</button>
+        <span class="sfx-name">${esc(it.name)}${it.extra ? `<small>${esc(it.extra)}</small>` : ''}</span><span class="sfx-dur" data-len="${i}">${lenTxt(it)}</span>
+        <button class="mini" data-edit="${i}" aria-label="Editar trecho">${ic('scissors')}</button>
+        <button class="mini add" data-add="${i}" aria-label="Adicionar">${ic('plus')}</button></div>
+        <div class="sfx-edit" data-box="${i}" hidden></div></div>`).join('') + (mais ? '<button class="btn" id="fs-mais">Mostrar mais sons</button>' : '')
+        : '<p class="note">Nenhum som encontrado. Tente outra palavra (em inglês costuma achar mais: door, swoosh, beep).</p>';
+      lista.querySelectorAll('[data-play]').forEach((el) => el.onclick = async () => {
+        const it = itens[+el.dataset.play]; el.classList.add('on');
+        try { const buf = await sfxBuffer(it.key); const [a, z] = sfxTrim(it.key, buf.duration); playRange(buf, a, z); }
+        catch (e) { toast(e.message?.includes('conta') ? e.message : 'Não consegui tocar este som'); } finally { el.classList.remove('on'); }
       });
-    });
-    b.querySelectorAll('[data-add]').forEach((el) => el.onclick = async () => {
-      const s = sfxIndex[+el.dataset.add]; stopSfxPrev();
+      lista.querySelectorAll('[data-edit]').forEach((el) => el.onclick = async () => {
+        const i = +el.dataset.edit, it = itens[i], box = lista.querySelector(`[data-box="${i}"]`);
+        if (!box.hidden) { box.hidden = true; el.classList.remove('on'); return; }
+        lista.querySelectorAll('.sfx-edit').forEach((x) => (x.hidden = true)); lista.querySelectorAll('[data-edit]').forEach((x) => x.classList.remove('on'));
+        box.hidden = false; el.classList.add('on');
+        try {
+          const buf = await sfxBuffer(it.key), [a, z] = sfxTrim(it.key, buf.duration), sel = { in: a, out: z };
+          makeTrimmer(box, buf, sel, {
+            onChange: () => { lista.querySelector(`[data-len="${i}"]`).textContent = (sel.out - sel.in).toFixed(1) + 's ✂'; },
+            onDone: () => { prefs.sfxTrim = { ...(prefs.sfxTrim || {}), [it.key]: [sel.in, sel.out] }; savePrefs(); },
+          });
+        } catch { box.hidden = true; toast('Não consegui abrir este som'); }
+      });
+      lista.querySelectorAll('[data-add]').forEach((el) => el.onclick = async () => {
+        const it = itens[+el.dataset.add]; stopSfxPrev();
+        try {
+          const buf = await sfxBuffer(it.key), [a, z] = sfxTrim(it.key, buf.duration);
+          const ab = await sfxBytes(it.key), nome = (it.key.startsWith('fs:') ? 'fs-' + it.name.replace(/[^\w-]+/g, '-').slice(0, 40) + '.mp3' : it.key);
+          await addAudioFromFile(new File([ab], nome, { type: 'audio/mpeg' }), it.name, [a, z]);
+        } catch { toast('Não consegui adicionar este som'); }
+      });
+      const mb = $('#fs-mais', lista); if (mb) mb.onclick = () => carregar(pagina + 1);
+    };
+    let pagina = 1, qAtual = '';
+    const carregar = async (pg = 1) => {
+      const q = sfxBusca || FS_CATS[sfxCat][1]; qAtual = q; pagina = pg;
+      if (pg === 1) lista.innerHTML = '<p class="note">Carregando sons…</p>';
       try {
-        const buf = await sfxBuffer(s.file), [a, z] = sfxTrim(s.file, buf.duration);
-        const blob = await (await fetch('sfx/lib/' + encodeURIComponent(s.file))).blob();
-        await addAudioFromFile(new File([blob], s.file, { type: 'audio/mpeg' }), s.name, [a, z]);
-      } catch { toast('Não consegui adicionar este som'); }
+        const r = await fsBuscar(q, pg); if (qAtual !== q || !b.isConnected) return;
+        const novos = r.itens.map((x) => { fsLembrar(x); return { key: fsKey(x), name: x.nome, dur: x.dur, extra: x.baixados ? `${x.baixados.toLocaleString('pt-BR')} downloads` : '' }; });
+        itens = pg === 1 ? novos : [...itens, ...novos]; desenhar(r.mais);
+      } catch (e) { lista.innerHTML = `<p class="note">${esc(e.message || 'Não consegui buscar os sons agora.')}</p>`; }
+    };
+    if (sfxAba === 'lib') {
+      itens = sfxIndex.map((x) => ({ key: x.file, name: x.name, dur: x.dur })); desenhar(false);
+      if (!itens.length) lista.innerHTML = '<p class="note">Não consegui carregar a lista de sons.</p>';
+      return;
+    }
+    b.querySelectorAll('[data-fcat]').forEach((el) => el.onclick = () => {
+      sfxCat = +el.dataset.fcat; sfxBusca = ''; $('#fs-q', b).value = '';
+      b.querySelectorAll('[data-fcat]').forEach((x) => x.classList.toggle('on', x === el)); carregar(1);
     });
+    const buscar = () => { const v = $('#fs-q', b).value.trim(); sfxBusca = v; b.querySelectorAll('[data-fcat]').forEach((x) => x.classList.toggle('on', !v && +x.dataset.fcat === sfxCat)); carregar(1); $('#fs-q', b).blur(); };
+    $('#fs-ir', b).onclick = buscar;
+    $('#fs-q', b).addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); buscar(); } });
+    carregar(1);
   });
 }
 

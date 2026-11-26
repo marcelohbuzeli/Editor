@@ -492,3 +492,11 @@ body.sem-projeto #empty { overflow: auto; }
   body.sem-projeto .empty-card h2 { font-size: 20px; }
   body.sem-projeto .empty-card p { margin-bottom: 14px; font-size: 13px; }
 }
+
+/* efeitos sonoros: busca e categorias do Freesound */
+.sfx-busca { display: flex; gap: 8px; margin: 2px 0 8px; }
+.sfx-busca input { flex: 1; min-width: 0; height: 40px; border-radius: var(--r-xs); border: 1px solid var(--line-2); background: var(--glass-2); color: var(--ink); font: 400 15px var(--font); padding: 0 12px; }
+.sfx-cats { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding-bottom: 4px; }
+.sfx-cats::-webkit-scrollbar { display: none; }
+.sfx-cats .chip { flex: 0 0 auto; }
+.sfx-name small { display: block; font-size: 10.5px; color: var(--ink-3); font-weight: 400; }
